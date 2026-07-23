@@ -24,6 +24,8 @@ This project has two purposes:
 - The moment every reviewer has toggled Done, the round **closes** and the author gets a personal Teams DM: safe to proceed.
 - The next "Ready for review" click auto-increments to the next round and resets Done state for the new reviewer snapshot.
 
+Personal DMs (rather than a shared channel) require a real Teams bot with proactive messaging — each teammate adds the bot once (sideloaded within the org's tenant, no Teams Store listing needed), after which PRSync can message them directly whenever they're an author or reviewer on an open round.
+
 Full data model and decision log from the initial design session: [`docs/ubiquitous-language.md`](docs/ubiquitous-language.md).
 
 ---
@@ -47,15 +49,16 @@ The `.claude/` folder contains all skill definitions. The `docs/` folder contain
 
 ## Tech Stack
 
-| Layer                | Choice                                       | Why                                                           |
-| -------------------- | -------------------------------------------- | ------------------------------------------------------------- |
-| ADO Extension        | React + TypeScript + Vite, `azure-devops-ui` | Native look inside the Azure DevOps PR page                   |
-| Extension SDK        | `azure-devops-extension-sdk`                 | Official SDK for contributing panels to ADO pages             |
-| API                  | Azure Functions (Node.js + TypeScript)       | Event-driven — matches the bursty, webhook-triggered workload |
-| Storage              | Azure Table Storage (`@azure/data-tables`)   | Single-entity model (round), no relational joins needed       |
-| Teams (v1)           | Incoming webhook, personal DM per person     | Static Adaptive Cards, no bot registration needed for v1      |
-| Teams (v2, deferred) | Bot Framework bot                            | Interactive "mark done" action directly from the card         |
-| Testing              | Vitest                                       | Consistent across both the extension and API packages         |
+| Layer                | Choice                                           | Why                                                                                                                                                                              |
+| -------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ADO Extension        | React + TypeScript + Vite, `azure-devops-ui`     | Native look inside the Azure DevOps PR page                                                                                                                                      |
+| Extension SDK        | `azure-devops-extension-sdk`                     | Official SDK for contributing panels to ADO pages                                                                                                                                |
+| API                  | Azure Functions (Node.js + TypeScript)           | Event-driven — matches the bursty, webhook-triggered workload                                                                                                                    |
+| Storage              | Azure Table Storage (`@azure/data-tables`)       | Single-entity model (round), no relational joins needed                                                                                                                          |
+| Teams                | Azure Bot resource (Bot Framework, free F0 tier) | Personal 1:1 DMs require a real bot with proactive messaging — a Teams incoming webhook can only post to a channel or pre-configured chat, never to an arbitrary individual user |
+| Teams (v1)           | Bot sends static, non-interactive Adaptive Cards | Link-out only — the bot exists in v1, but cards have no clickable actions yet                                                                                                    |
+| Teams (v2, deferred) | Interactive card actions                         | Clickable "mark done" directly from the card, round-tripping through the bot                                                                                                     |
+| Testing              | Vitest                                           | Consistent across both the extension and API packages                                                                                                                            |
 
 ---
 
@@ -68,7 +71,7 @@ PRSync/
 ├── packages/
 │   ├── extension/        # ADO extension — packaged as a .vsix
 │   ├── api/               # Azure Functions
-│   └── bot/                # Teams Bot Framework bot — deferred to v2
+│   └── bot/                # Teams Bot Framework bot — static cards in v1, interactive actions deferred to v2
 └── docs/
     ├── design-logs/       # Immutable feature design snapshots
     ├── PRDs/               # Product requirements and implementation plans
@@ -135,10 +138,10 @@ Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
 | Monorepo scaffold                                         | ✅ Complete      |
 | 1. Round Lifecycle (data + API)                           | ⬜ Not started   |
 | 2. Extension Panel                                        | ⬜ Not started   |
-| 3. Teams Notifications                                    | ⬜ Not started   |
+| 3. Teams Notifications (bot registration + static cards)  | ⬜ Not started   |
 | Round history view                                        | ⏸ Deferred       |
 | Reminder notifications                                    | ⏸ Deferred       |
-| Teams Bot Framework bot (interactive actions)             | ⏸ Deferred to v2 |
+| Interactive Teams card actions ("mark done" from Teams)   | ⏸ Deferred to v2 |
 
 ---
 
