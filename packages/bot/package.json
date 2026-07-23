@@ -1,0 +1,10 @@
+{
+  "name": "@prsync/bot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PRSync Teams Bot Framework bot - deferred to v2. v1 posts via Teams incoming webhook from @prsync/api instead.",
+  "scripts": {
+    "build": "echo \"@prsync/bot: deferred to v2, nothing to build yet\"",
+    "test": "echo \"@prsync/bot: deferred to v2, nothing to test yet\""
+  }
+}

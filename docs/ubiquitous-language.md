@@ -1,0 +1,24 @@
+# Ubiquitous Language
+
+Single source of truth for domain terminology. Read before naming
+anything. Update after every grill-me session.
+
+Seeded from the initial grill-me session (design-log entry pending —
+see docs/design-logs/ once created).
+
+| Term                         | Definition                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Round**                    | A single cycle of review on a PR. Opens when the author clicks "Ready for review"; closes when every mirrored ADO reviewer has toggled their own Done state. A PR can have many rounds over its lifetime.                                                                                                                                                                               |
+| **Phase**                    | Which kind of content a round is reviewing: `spec` (use case / UC.md only) or `implementation` (use case + generated code). Set explicitly by the author when opening the round — never inferred from the file diff.                                                                                                                                                                    |
+| **Round label**              | Human-readable name for a round, e.g. "Round 2 — Implementation Review". Auto-generated from the round number + phase, but editable by the author. Snapshotted at send-time into the Teams DM; editing the label later does not retroactively update a DM already sent.                                                                                                                 |
+| **Ready for review**         | The single author action that (a) sets/confirms the round's phase, (b) opens a new round (round N+1 if the previous round was closed, round 1 if none exists), (c) snapshots the reviewer list from ADO, and (d) fires the Teams DM to each reviewer.                                                                                                                                   |
+| **Done (reviewer toggle)**   | A per-reviewer boolean signal meaning "I've finished my pass on this round." Owned exclusively by that reviewer — no one else can toggle it. Editable only while the round is still open; once the round closes it is frozen (cannot be un-toggled by anyone, including the reviewer who just closed it). Separate from and does not replace Azure DevOps's native Approve/Reject vote. |
+| **Round closed**             | State reached the moment every mirrored reviewer's Done toggle is true. Triggers the single Teams DM to the author ("safe to proceed"). Also auto-triggers if a pending reviewer is removed from the PR in ADO and no pending reviewers remain.                                                                                                                                         |
+| **Reviewer list (mirrored)** | The set of reviewers PRSync tracks for a round, copied from Azure DevOps's own PR reviewer list at the moment the round opens (not re-synced live during the round). ADO's reviewer list is the single source of truth — PRSync has no separate reviewer add/remove mechanism.                                                                                                          |
+| **PRSync (Teams identity)**  | The name shown as the sender of all Teams DMs. Personal 1:1 DM per person, not a shared channel — each teammate gets notified only about rounds where they are the author (round closed) or a reviewer (round opened).                                                                                                                                                                  |
+
+## Deferred / not yet modeled
+
+- Round history (past closed rounds) — deferred, no data model yet
+- Reminder notifications for long-pending reviews — deferred, no data model yet
+- Teams identity linking override (manual ADO↔Teams mapping for cases where email resolution fails) — schema field reserved, no UI yet

@@ -1,0 +1,34 @@
+{
+  "manifestVersion": 1,
+  "id": "prsync",
+  "name": "PRSync",
+  "version": "0.1.0",
+  "publisher": "REPLACE_WITH_PUBLISHER_ID",
+  "description": "Coordinated review rounds for spec-driven PRs, with Teams notifications.",
+  "categories": ["Azure Repos"],
+  "targets": [
+    {
+      "id": "Microsoft.VisualStudio.Services"
+    }
+  ],
+  "icons": {
+    "default": "icon.png"
+  },
+  "contributions": [
+    {
+      "id": "prsync-pr-panel",
+      "type": "ms.vss-web.tab",
+      "targets": ["ms.vss-code-web.pr-detail-page"],
+      "properties": {
+        "name": "PRSync",
+        "uri": "dist/index.html"
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "dist",
+      "addressable": true
+    }
+  ]
+}
