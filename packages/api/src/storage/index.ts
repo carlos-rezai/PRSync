@@ -5,4 +5,4 @@
 // folderized), never from a module's internal file. This is the only
 // layer that touches @azure/data-tables directly. See .claude/CLAUDE.md.
 
-export * from "./RoundRepository";
+export * from "./RoundRepository/RoundRepository";

@@ -4,7 +4,7 @@ import {
   PreconditionFailedError,
   TableStorageRoundRepository,
 } from "./RoundRepository";
-import type { Round } from "../lib";
+import type { Round } from "../../lib";
 
 // Integration test against the Azurite emulator (per the PRD). Start it
 // with `npx azurite` before running. The repository is the ONLY layer
