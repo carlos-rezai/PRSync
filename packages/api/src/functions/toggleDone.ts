@@ -32,7 +32,7 @@ export function makeToggleDoneHandler(
 ) {
   return async function toggleDone(
     request: HttpRequest,
-    _context: InvocationContext
+    context: InvocationContext
   ): Promise<HttpResponseInit> {
     const prKey = request.params.prKey ?? "";
     if (!isValidPrKey(prKey)) {
@@ -80,6 +80,12 @@ export function makeToggleDoneHandler(
           jsonBody: { error: error.code },
         };
       }
+      // Correlate on the PR key + round number only — never the bearer
+      // token or any reviewer email.
+      context.error(
+        `toggleDone failed [pr=${prKey} round=${roundNumber}]`,
+        error
+      );
       throw error;
     }
   };

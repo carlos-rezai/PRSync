@@ -10,11 +10,19 @@ import {
   RoundServiceError,
   type OpenRoundInput,
 } from "../services/RoundService";
+import type { IdentityResolver } from "../services/IdentityResolver";
 
 // Thin HTTP entry point for POST /api/prs/{prKey}/rounds. The layer does
 // exactly three things: reject malformed input at the boundary (before
-// any service/storage call), call the service, and map its result/errors
-// to HTTP. No business logic lives here.
+// any service/storage call), resolve the caller's identity via the
+// IdentityResolver seam (401 when it yields nothing), and map the
+// service result/errors to HTTP. No business logic lives here.
+//
+// The recorded author identity comes ONLY from the resolved token — the
+// body carries the author's name/email as inert display/Teams data but
+// has NO author `adoId` field (reject-unknown), so authoring a round as
+// someone else is inexpressible. Tokens and reviewer/author emails never
+// reach the logs; correlation is on the PR key.
 
 // Reject bodies larger than this before parsing — a cheap DoS guard and
 // a hard cap well above any legitimate reviewer list.
@@ -33,18 +41,23 @@ const openRoundBodySchema = z.strictObject({
   reviewers: z.array(reviewerSchema),
   prTitle: z.string(),
   prUrl: z.string(),
+  // Display/Teams data only — never an adoId. The authoritative author
+  // identity is the resolved caller's adoId (reject-unknown drops any
+  // attempt to smuggle one in via the body).
   author: z.strictObject({
-    adoId: z.string(),
     name: z.string(),
     email: z.string(),
   }),
   label: z.string().optional(),
 });
 
-export function makeOpenRoundHandler(service: RoundService) {
+export function makeOpenRoundHandler(
+  service: RoundService,
+  identity: IdentityResolver
+) {
   return async function openRound(
     request: HttpRequest,
-    _context: InvocationContext
+    context: InvocationContext
   ): Promise<HttpResponseInit> {
     const prKey = request.params.prKey ?? "";
     if (!isValidPrKey(prKey)) {
@@ -68,8 +81,26 @@ export function makeOpenRoundHandler(service: RoundService) {
       return { status: 400, jsonBody: { error: "Invalid request body." } };
     }
 
+    const caller = await identity.resolve(request);
+    if (caller === null) {
+      return { status: 401, jsonBody: { error: "Unauthenticated." } };
+    }
+
     try {
-      const input: OpenRoundInput = parsed.data;
+      const input: OpenRoundInput = {
+        phase: parsed.data.phase,
+        reviewers: parsed.data.reviewers,
+        prTitle: parsed.data.prTitle,
+        prUrl: parsed.data.prUrl,
+        // Author identity is the resolved caller — never the body.
+        callerAdoId: caller.adoId,
+        author: {
+          adoId: caller.adoId,
+          name: parsed.data.author.name,
+          email: parsed.data.author.email,
+        },
+        label: parsed.data.label,
+      };
       const round = await service.openRound(prKey, input);
       return { status: 201, jsonBody: round };
     } catch (error) {
@@ -77,6 +108,9 @@ export function makeOpenRoundHandler(service: RoundService) {
         const status = error.code === "ROUND_ALREADY_OPEN" ? 409 : 422;
         return { status, jsonBody: { error: error.code } };
       }
+      // Correlate on the PR key only — never the bearer token or any
+      // reviewer/author email.
+      context.error(`openRound failed [pr=${prKey}]`, error);
       throw error;
     }
   };

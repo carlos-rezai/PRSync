@@ -48,6 +48,10 @@ export interface OpenRoundInput {
   prTitle: string;
   prUrl: string;
   author: Author;
+  // The resolved caller's immutable adoId — the authoritative author
+  // identity, supplied by the function layer from the verified token
+  // (never a body field). `author.adoId` is set to the same value.
+  callerAdoId?: string;
   label?: string;
 }
 
