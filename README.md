@@ -136,7 +136,7 @@ Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
 | Panel layout spec (in place of a Claude Design prototype) | ✅ Complete      |
 | Adaptive Card templates                                   | ✅ Complete      |
 | Monorepo scaffold                                         | ✅ Complete      |
-| 1. Round Lifecycle (data + API)                           | ⬜ Not started   |
+| 1. Round Lifecycle (data + API)                           | ✅ Complete      |
 | 2. Extension Panel                                        | ⬜ Not started   |
 | 3. Teams Notifications (bot registration + static cards)  | ⬜ Not started   |
 | Round history view                                        | ⏸ Deferred       |
