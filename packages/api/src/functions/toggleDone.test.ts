@@ -144,6 +144,33 @@ describe("toggleDone handler — authentication (401)", () => {
   });
 });
 
+describe("toggleDone handler — PII-safe logging", () => {
+  it("never writes the bearer token to the logs on an unexpected error; correlates on PR key + round number", async () => {
+    const TOKEN = "super-secret-bearer-token";
+    service.toggleDone.mockRejectedValue(new Error("boom"));
+    const ctx = makeCtx();
+
+    await expect(
+      handler()(
+        makeReq({
+          body: { done: true },
+          headers: { authorization: `Bearer ${TOKEN}` },
+        }),
+        ctx
+      )
+    ).rejects.toThrow();
+
+    expect(ctx.error).toHaveBeenCalled();
+    const logged = (ctx.error as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .flat()
+      .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
+      .join(" ");
+    expect(logged).toContain(PR_KEY);
+    expect(logged).toContain("1"); // round number correlation
+    expect(logged).not.toContain(TOKEN);
+  });
+});
+
 describe("toggleDone handler — success and error mapping", () => {
   it("returns 200 and toggles the RESOLVED caller (not any body field)", async () => {
     service.toggleDone.mockResolvedValue({
