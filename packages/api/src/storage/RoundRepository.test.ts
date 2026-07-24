@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { TableClient } from "@azure/data-tables";
-import { TableStorageRoundRepository } from "./RoundRepository";
+import {
+  PreconditionFailedError,
+  TableStorageRoundRepository,
+} from "./RoundRepository";
 import type { Round } from "../lib/types";
 
 // Integration test against the Azurite emulator (per the PRD). Start it
@@ -111,5 +114,60 @@ describe("TableStorageRoundRepository", () => {
     const unknown =
       "99999999-9999-9999-9999-999999999999:88888888-8888-8888-8888-888888888888:1";
     expect(await repo.getCurrentRound(unknown)).toBeNull();
+  });
+});
+
+describe("TableStorageRoundRepository — ETag optimistic concurrency", () => {
+  const P5 =
+    "10000000-0000-0000-0000-000000000000:20000000-0000-0000-0000-000000000000:5";
+  const P6 =
+    "10000000-0000-0000-0000-000000000000:20000000-0000-0000-0000-000000000000:6";
+  const P7 =
+    "10000000-0000-0000-0000-000000000000:20000000-0000-0000-0000-000000000000:7";
+
+  it("getRound returns the round with a non-empty ETag, and null when the round is absent", async () => {
+    await repo.createRound(makeRound({ prKey: P5, roundNumber: 1 }));
+
+    const stored = await repo.getRound(P5, 1);
+    expect(stored).not.toBeNull();
+    expect(stored?.round.roundNumber).toBe(1);
+    expect(typeof stored?.etag).toBe("string");
+    expect(stored?.etag.length).toBeGreaterThan(0);
+
+    expect(await repo.getRound(P5, 999)).toBeNull();
+  });
+
+  it("updateRound with the current ETag persists the change and returns a fresh ETag", async () => {
+    await repo.createRound(
+      makeRound({ prKey: P6, roundNumber: 1, status: "open" })
+    );
+    const stored = (await repo.getRound(P6, 1))!;
+
+    const closed: Round = {
+      ...stored.round,
+      status: "closed",
+      closedAt: "2026-07-24T12:00:00.000Z",
+    };
+    const result = await repo.updateRound(closed, stored.etag);
+
+    expect(result.round.status).toBe("closed");
+    expect(result.etag).not.toBe(stored.etag);
+    expect((await repo.getRound(P6, 1))?.round.status).toBe("closed");
+  });
+
+  it("updateRound with a stale ETag throws PreconditionFailedError and leaves storage untouched", async () => {
+    await repo.createRound(
+      makeRound({ prKey: P7, roundNumber: 1, status: "open", label: "orig" })
+    );
+    const stored = (await repo.getRound(P7, 1))!;
+
+    // A competing writer commits first, invalidating our ETag.
+    await repo.updateRound({ ...stored.round, label: "winner" }, stored.etag);
+
+    await expect(
+      repo.updateRound({ ...stored.round, label: "loser" }, stored.etag)
+    ).rejects.toBeInstanceOf(PreconditionFailedError);
+
+    expect((await repo.getRound(P7, 1))?.round.label).toBe("winner");
   });
 });

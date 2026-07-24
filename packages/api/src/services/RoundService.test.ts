@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RoundService, RoundServiceError } from "./RoundService";
 import type { NotificationPort } from "./NotificationPort";
-import type { RoundRepository } from "../storage/RoundRepository";
-import type { IncomingReviewer, Round } from "../lib/types";
+import {
+  PreconditionFailedError,
+  type RoundRepository,
+} from "../storage/RoundRepository";
+import type { IncomingReviewer, Round, RoundReviewer } from "../lib/types";
 
 // Behavioural tests over the RoundService public interface, exercised
 // against an in-memory RoundRepository fake and a spy NotificationPort
@@ -15,6 +18,23 @@ const PR_KEY =
 
 class InMemoryRoundRepository implements RoundRepository {
   private byPr = new Map<string, Round[]>();
+  private etags = new Map<string, string>();
+
+  // Test controls for simulating optimistic-concurrency contention.
+  onBeforeUpdate: (() => void) | null = null;
+  failAllUpdates = false;
+  updateCalls = 0;
+
+  private rowKey(prKey: string, roundNumber: number): string {
+    return `${prKey}#${roundNumber}`;
+  }
+
+  private bump(prKey: string, roundNumber: number): string {
+    const key = this.rowKey(prKey, roundNumber);
+    const next = String(Number(this.etags.get(key) ?? "0") + 1);
+    this.etags.set(key, next);
+    return next;
+  }
 
   async getCurrentRound(prKey: string): Promise<Round | null> {
     const rounds = this.byPr.get(prKey) ?? [];
@@ -28,7 +48,46 @@ class InMemoryRoundRepository implements RoundRepository {
     const rounds = this.byPr.get(round.prKey) ?? [];
     rounds.push(structuredClone(round));
     this.byPr.set(round.prKey, rounds);
+    this.bump(round.prKey, round.roundNumber);
     return structuredClone(round);
+  }
+
+  async getRound(
+    prKey: string,
+    roundNumber: number
+  ): Promise<{ round: Round; etag: string } | null> {
+    const rounds = this.byPr.get(prKey) ?? [];
+    const found = rounds.find((r) => r.roundNumber === roundNumber);
+    if (found === undefined) return null;
+    return {
+      round: structuredClone(found),
+      etag: this.etags.get(this.rowKey(prKey, roundNumber))!,
+    };
+  }
+
+  async updateRound(
+    round: Round,
+    etag: string
+  ): Promise<{ round: Round; etag: string }> {
+    this.updateCalls++;
+    if (this.failAllUpdates) throw new PreconditionFailedError();
+
+    // A one-shot hook lets a test inject a competing write (bumping the
+    // ETag) between our read and our conditional write.
+    if (this.onBeforeUpdate !== null) {
+      const hook = this.onBeforeUpdate;
+      this.onBeforeUpdate = null;
+      hook();
+    }
+
+    const key = this.rowKey(round.prKey, round.roundNumber);
+    if (this.etags.get(key) !== etag) throw new PreconditionFailedError();
+
+    const rounds = this.byPr.get(round.prKey)!;
+    const idx = rounds.findIndex((r) => r.roundNumber === round.roundNumber);
+    rounds[idx] = structuredClone(round);
+    const nextEtag = this.bump(round.prKey, round.roundNumber);
+    return { round: structuredClone(round), etag: nextEtag };
   }
 
   // Test-only seeding helper (not part of the interface).
@@ -36,6 +95,18 @@ class InMemoryRoundRepository implements RoundRepository {
     const rounds = this.byPr.get(round.prKey) ?? [];
     rounds.push(structuredClone(round));
     this.byPr.set(round.prKey, rounds);
+    this.bump(round.prKey, round.roundNumber);
+  }
+
+  // Test-only: simulate a competing writer that has already closed the
+  // round, invalidating any outstanding ETag.
+  forceClose(prKey: string, roundNumber: number): void {
+    const rounds = this.byPr.get(prKey) ?? [];
+    const found = rounds.find((r) => r.roundNumber === roundNumber);
+    if (found === undefined) return;
+    found.status = "closed";
+    found.closedAt = "2026-07-24T11:00:00.000Z";
+    this.bump(prKey, roundNumber);
   }
 }
 
@@ -257,5 +328,234 @@ describe("RoundService.getCurrentRound", () => {
 
   it("returns null for a PR that has never had a round", async () => {
     expect(await service().getCurrentRound(PR_KEY)).toBeNull();
+  });
+});
+
+function rvwr(overrides: Partial<RoundReviewer> = {}): RoundReviewer {
+  return {
+    adoId: "r1",
+    email: "r1@example.com",
+    displayName: "Reviewer One",
+    isRequired: false,
+    done: false,
+    teamsIdOverride: null,
+    ...overrides,
+  };
+}
+
+function seedOpenRound(reviewers: RoundReviewer[], quorum = 2): Round {
+  const round = seedRound({
+    roundNumber: 1,
+    status: "open",
+    quorum,
+    reviewers,
+  });
+  repo.seed(round);
+  return round;
+}
+
+describe("RoundService.toggleDone", () => {
+  it("sets only the caller's own Done state and returns the updated round", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+
+    const updated = await service().toggleDone(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: "r1",
+      done: true,
+    });
+
+    const r1 = updated.reviewers.find((r) => r.adoId === "r1");
+    const r2 = updated.reviewers.find((r) => r.adoId === "r2");
+    expect(r1?.done).toBe(true);
+    expect(typeof r1?.doneAt).toBe("string");
+    expect(r2?.done).toBe(false); // never touched by another caller
+    expect(updated.status).toBe("open");
+  });
+
+  it("refuses a caller who is not a snapshotted reviewer (NOT_A_REVIEWER)", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+
+    const attempt = () =>
+      service().toggleDone(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: "stranger",
+        done: true,
+      });
+
+    await expect(attempt()).rejects.toMatchObject({ code: "NOT_A_REVIEWER" });
+    await expect(attempt()).rejects.toBeInstanceOf(RoundServiceError);
+  });
+
+  it("refuses a toggle on a non-open round (ROUND_NOT_OPEN) and does not notify", async () => {
+    repo.seed(
+      seedRound({
+        roundNumber: 1,
+        status: "closed",
+        reviewers: [rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })],
+      })
+    );
+
+    await expect(
+      service().toggleDone(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: "r1",
+        done: true,
+      })
+    ).rejects.toMatchObject({ code: "ROUND_NOT_OPEN" });
+    expect(notifications.roundClosed).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent — re-marking Done yields the same state as a single mark", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+    const svc = service();
+
+    const once = await svc.toggleDone(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: "r1",
+      done: true,
+    });
+    const twice = await svc.toggleDone(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: "r1",
+      done: true,
+    });
+
+    expect(once.reviewers.find((r) => r.adoId === "r1")?.done).toBe(true);
+    expect(twice.reviewers.find((r) => r.adoId === "r1")?.done).toBe(true);
+    expect(twice.status).toBe("open");
+  });
+
+  it("allows un-marking Done while the round is open, clearing doneAt", async () => {
+    seedOpenRound([
+      rvwr({ adoId: "r1", done: true, doneAt: "2026-07-24T10:00:00.000Z" }),
+      rvwr({ adoId: "r2" }),
+    ]);
+
+    const updated = await service().toggleDone(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: "r1",
+      done: false,
+    });
+
+    const r1 = updated.reviewers.find((r) => r.adoId === "r1");
+    expect(r1?.done).toBe(false);
+    expect(r1?.doneAt).toBeUndefined();
+    expect(updated.status).toBe("open");
+  });
+
+  it("closes automatically when the quorum is reached, setting closedAt and firing roundClosed exactly once", async () => {
+    seedOpenRound(
+      [
+        rvwr({ adoId: "r1", done: true, doneAt: "2026-07-24T10:00:00.000Z" }),
+        rvwr({ adoId: "r2" }),
+      ],
+      2
+    );
+
+    const updated = await service().toggleDone(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: "r2",
+      done: true,
+    });
+
+    expect(updated.status).toBe("closed");
+    expect(typeof updated.closedAt).toBe("string");
+    expect(notifications.roundClosed).toHaveBeenCalledTimes(1);
+    expect(notifications.roundClosed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prKey: PR_KEY,
+        roundNumber: 1,
+        status: "closed",
+      })
+    );
+    expect((await repo.getCurrentRound(PR_KEY))?.status).toBe("closed");
+  });
+
+  it("rejects a toggle arriving after the round has already closed (ROUND_NOT_OPEN) without re-firing the notification", async () => {
+    seedOpenRound(
+      [
+        rvwr({ adoId: "r1", done: true, doneAt: "2026-07-24T10:00:00.000Z" }),
+        rvwr({ adoId: "r2" }),
+      ],
+      2
+    );
+    const svc = service();
+
+    await svc.toggleDone(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: "r2",
+      done: true,
+    }); // reaches quorum → closes
+    expect(notifications.roundClosed).toHaveBeenCalledTimes(1);
+
+    await expect(
+      svc.toggleDone(PR_KEY, { roundNumber: 1, callerAdoId: "r1", done: false })
+    ).rejects.toMatchObject({ code: "ROUND_NOT_OPEN" });
+    expect(notifications.roundClosed).toHaveBeenCalledTimes(1); // frozen; not re-fired
+  });
+
+  it("a toggle that loses the ETag race to a concurrent close observes closed and refuses without re-notifying", async () => {
+    seedOpenRound(
+      [
+        rvwr({ adoId: "r1", done: true, doneAt: "2026-07-24T10:00:00.000Z" }),
+        rvwr({ adoId: "r2" }),
+      ],
+      2
+    );
+
+    // A competing writer closes the round between our read and our
+    // conditional write, invalidating our ETag exactly once.
+    repo.onBeforeUpdate = () => repo.forceClose(PR_KEY, 1);
+
+    await expect(
+      service().toggleDone(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: "r2",
+        done: true,
+      })
+    ).rejects.toMatchObject({ code: "ROUND_NOT_OPEN" });
+
+    // The loser never fires the safety signal — the winner owns it exactly once.
+    expect(notifications.roundClosed).not.toHaveBeenCalled();
+  });
+
+  it("retries on ETag precondition failures and surfaces CONCURRENCY_EXHAUSTED after the bound (3)", async () => {
+    seedOpenRound(
+      [rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" }), rvwr({ adoId: "r3" })],
+      3
+    );
+    repo.failAllUpdates = true;
+
+    await expect(
+      service().toggleDone(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: "r1",
+        done: true,
+      })
+    ).rejects.toMatchObject({ code: "CONCURRENCY_EXHAUSTED" });
+
+    expect(repo.updateCalls).toBe(3);
+  });
+
+  it("isolates a roundClosed notification failure — the close still commits", async () => {
+    seedOpenRound(
+      [
+        rvwr({ adoId: "r1", done: true, doneAt: "2026-07-24T10:00:00.000Z" }),
+        rvwr({ adoId: "r2" }),
+      ],
+      2
+    );
+    notifications.roundClosed = vi
+      .fn()
+      .mockRejectedValue(new Error("bot is down"));
+
+    const updated = await service().toggleDone(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: "r2",
+      done: true,
+    });
+
+    expect(updated.status).toBe("closed");
+    expect((await repo.getCurrentRound(PR_KEY))?.status).toBe("closed");
   });
 });
