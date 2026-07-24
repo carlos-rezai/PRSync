@@ -13,6 +13,26 @@ import type { Phase, Round, RoundReviewer, RoundStatus } from "../lib/types";
 export interface RoundRepository {
   getCurrentRound(prKey: string): Promise<Round | null>;
   createRound(round: Round): Promise<Round>;
+  getRound(
+    prKey: string,
+    roundNumber: number
+  ): Promise<{ round: Round; etag: string } | null>;
+  updateRound(
+    round: Round,
+    etag: string
+  ): Promise<{ round: Round; etag: string }>;
+}
+
+/**
+ * Thrown when a conditional write is rejected because the entity's ETag
+ * has moved on since it was read — the caller lost an optimistic-
+ * concurrency race and should re-read and retry.
+ */
+export class PreconditionFailedError extends Error {
+  constructor(message = "ETag precondition failed.") {
+    super(message);
+    this.name = "PreconditionFailedError";
+  }
 }
 
 type RoundEntity = TableEntity<{
@@ -105,4 +125,53 @@ export class TableStorageRoundRepository implements RoundRepository {
     await this.client.createEntity(toEntity(round));
     return round;
   }
+
+  async getRound(
+    prKey: string,
+    roundNumber: number
+  ): Promise<{ round: Round; etag: string } | null> {
+    try {
+      const entity = await this.client.getEntity<RoundEntity>(
+        prKey,
+        toRowKey(roundNumber)
+      );
+      return { round: toRound(entity), etag: entity.etag };
+    } catch (error) {
+      if (statusCodeOf(error) === 404) return null;
+      throw error;
+    }
+  }
+
+  async updateRound(
+    round: Round,
+    etag: string
+  ): Promise<{ round: Round; etag: string }> {
+    try {
+      const response = await this.client.updateEntity(
+        toEntity(round),
+        "Replace",
+        { etag }
+      );
+      if (response.etag === undefined) {
+        throw new Error(
+          "Table Storage returned no ETag on a successful update."
+        );
+      }
+      return { round, etag: response.etag };
+    } catch (error) {
+      if (statusCodeOf(error) === 412) throw new PreconditionFailedError();
+      throw error;
+    }
+  }
+}
+
+// The @azure/data-tables SDK surfaces HTTP faults as RestError-shaped
+// objects carrying a numeric `statusCode`; read it structurally so the
+// repository stays the only layer coupled to the SDK.
+function statusCodeOf(error: unknown): number | undefined {
+  if (typeof error === "object" && error !== null && "statusCode" in error) {
+    const code = (error as { statusCode: unknown }).statusCode;
+    return typeof code === "number" ? code : undefined;
+  }
+  return undefined;
 }
