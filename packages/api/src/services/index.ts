@@ -6,5 +6,5 @@
 // module's internal file. See .claude/CLAUDE.md.
 
 export * from "./RoundService";
-export * from "./NotificationPort";
+export * from "./NotificationPort/NotificationPort";
 export * from "./IdentityResolver";

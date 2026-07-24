@@ -1,4 +1,4 @@
-import type { Round } from "../lib";
+import type { Round } from "../../lib";
 
 // The domain-language seam the round lifecycle calls to trigger DMs.
 // In v1 this is a no-op stub; Feature 3 supplies the real Bot Framework
