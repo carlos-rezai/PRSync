@@ -559,3 +559,175 @@ describe("RoundService.toggleDone", () => {
     expect((await repo.getCurrentRound(PR_KEY))?.status).toBe("closed");
   });
 });
+
+describe("RoundService.cancelRound", () => {
+  it("moves an open round to cancelled with a cancelledAt, returns it, and fires no notification", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+
+    const cancelled = await service().cancelRound(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: AUTHOR.adoId,
+    });
+
+    expect(cancelled.status).toBe("cancelled");
+    expect(typeof cancelled.cancelledAt).toBe("string");
+    expect(Number.isNaN(Date.parse(cancelled.cancelledAt!))).toBe(false);
+    // Cancelled and closed are distinct terminal states — a cancel never
+    // stamps closedAt, and "closed" only ever means the safety signal fired.
+    expect(cancelled.closedAt).toBeUndefined();
+
+    expect((await repo.getCurrentRound(PR_KEY))?.status).toBe("cancelled");
+    // Silent abandonment: neither notification fires.
+    expect(notifications.roundOpened).not.toHaveBeenCalled();
+    expect(notifications.roundClosed).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-author caller (NOT_AUTHOR), mutating and notifying nothing", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+
+    const attempt = () =>
+      service().cancelRound(PR_KEY, { roundNumber: 1, callerAdoId: "r1" });
+
+    await expect(attempt()).rejects.toMatchObject({ code: "NOT_AUTHOR" });
+    await expect(attempt()).rejects.toBeInstanceOf(RoundServiceError);
+
+    expect((await repo.getCurrentRound(PR_KEY))?.status).toBe("open");
+    expect(notifications.roundClosed).not.toHaveBeenCalled();
+  });
+
+  it("refuses cancelling a closed round (ROUND_NOT_OPEN)", async () => {
+    repo.seed(seedRound({ roundNumber: 1, status: "closed" }));
+
+    await expect(
+      service().cancelRound(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: AUTHOR.adoId,
+      })
+    ).rejects.toMatchObject({ code: "ROUND_NOT_OPEN" });
+  });
+
+  it("refuses cancelling an already-cancelled round (ROUND_NOT_OPEN)", async () => {
+    repo.seed(seedRound({ roundNumber: 1, status: "cancelled" }));
+
+    await expect(
+      service().cancelRound(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: AUTHOR.adoId,
+      })
+    ).rejects.toMatchObject({ code: "ROUND_NOT_OPEN" });
+  });
+
+  it("checks authorship before open-status — a non-author on a closed round still gets NOT_AUTHOR", async () => {
+    repo.seed(seedRound({ roundNumber: 1, status: "closed" }));
+
+    await expect(
+      service().cancelRound(PR_KEY, { roundNumber: 1, callerAdoId: "r1" })
+    ).rejects.toMatchObject({ code: "NOT_AUTHOR" });
+  });
+
+  it("frees the PR so the next round opens at lastRound + 1 after a cancel", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+    const svc = service();
+
+    await svc.cancelRound(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: AUTHOR.adoId,
+    });
+    const next = await svc.openRound(PR_KEY, openInput());
+
+    expect(next.roundNumber).toBe(2);
+    expect(next.status).toBe("open");
+  });
+
+  it("retries on ETag precondition failures and surfaces CONCURRENCY_EXHAUSTED after the bound (3)", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+    repo.failAllUpdates = true;
+
+    await expect(
+      service().cancelRound(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: AUTHOR.adoId,
+      })
+    ).rejects.toMatchObject({ code: "CONCURRENCY_EXHAUSTED" });
+
+    expect(repo.updateCalls).toBe(3);
+  });
+});
+
+describe("RoundService.editLabel", () => {
+  it("edits the label on an open round, returns it, and fires no notification", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+
+    const updated = await service().editLabel(PR_KEY, {
+      roundNumber: 1,
+      callerAdoId: AUTHOR.adoId,
+      label: "Round 1 — Final polish",
+    });
+
+    expect(updated.label).toBe("Round 1 — Final polish");
+    expect(updated.status).toBe("open");
+    expect((await repo.getCurrentRound(PR_KEY))?.label).toBe(
+      "Round 1 — Final polish"
+    );
+    // A label edit is display-only — it never re-fires or alters a
+    // notification already sent.
+    expect(notifications.roundOpened).not.toHaveBeenCalled();
+    expect(notifications.roundClosed).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-author caller (NOT_AUTHOR) and leaves the label unchanged", async () => {
+    // seedRound's default label is "Round 1 — Spec Review".
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+
+    await expect(
+      service().editLabel(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: "r1",
+        label: "hijacked",
+      })
+    ).rejects.toMatchObject({ code: "NOT_AUTHOR" });
+
+    expect((await repo.getCurrentRound(PR_KEY))?.label).toBe(
+      "Round 1 — Spec Review"
+    );
+  });
+
+  it("refuses editing the label on a non-open round (ROUND_NOT_OPEN)", async () => {
+    repo.seed(seedRound({ roundNumber: 1, status: "closed" }));
+
+    await expect(
+      service().editLabel(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: AUTHOR.adoId,
+        label: "too late",
+      })
+    ).rejects.toMatchObject({ code: "ROUND_NOT_OPEN" });
+  });
+
+  it("checks authorship before open-status — a non-author editing a closed round gets NOT_AUTHOR", async () => {
+    repo.seed(seedRound({ roundNumber: 1, status: "closed" }));
+
+    await expect(
+      service().editLabel(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: "r1",
+        label: "nope",
+      })
+    ).rejects.toMatchObject({ code: "NOT_AUTHOR" });
+  });
+
+  it("retries on ETag precondition failures and surfaces CONCURRENCY_EXHAUSTED after the bound (3)", async () => {
+    seedOpenRound([rvwr({ adoId: "r1" }), rvwr({ adoId: "r2" })]);
+    repo.failAllUpdates = true;
+
+    await expect(
+      service().editLabel(PR_KEY, {
+        roundNumber: 1,
+        callerAdoId: AUTHOR.adoId,
+        label: "x",
+      })
+    ).rejects.toMatchObject({ code: "CONCURRENCY_EXHAUSTED" });
+
+    expect(repo.updateCalls).toBe(3);
+  });
+});
