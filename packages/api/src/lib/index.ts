@@ -7,7 +7,7 @@
 
 export * from "./closePredicate/closePredicate";
 export * from "./label/label";
-export * from "./prKey";
+export * from "./prKey/prKey";
 export * from "./reviewerSnapshot";
 export * from "./roundNumber";
 export * from "./types/types";
