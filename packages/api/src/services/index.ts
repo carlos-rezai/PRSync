@@ -5,6 +5,6 @@
 // "../services" (or "../../services" once folderized), never from a
 // module's internal file. See .claude/CLAUDE.md.
 
-export * from "./RoundService";
+export * from "./RoundService/RoundService";
 export * from "./NotificationPort/NotificationPort";
 export * from "./IdentityResolver/IdentityResolver";

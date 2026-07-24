@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RoundService, RoundServiceError } from "./RoundService";
-import type { NotificationPort } from "./NotificationPort/NotificationPort";
-import { PreconditionFailedError, type RoundRepository } from "../storage";
-import type { IncomingReviewer, Round, RoundReviewer } from "../lib";
+import type { NotificationPort } from "../NotificationPort/NotificationPort";
+import { PreconditionFailedError, type RoundRepository } from "../../storage";
+import type { IncomingReviewer, Round, RoundReviewer } from "../../lib";
 
 // Behavioural tests over the RoundService public interface, exercised
 // against an in-memory RoundRepository fake and a spy NotificationPort
