@@ -4,13 +4,13 @@ import type {
   InvocationContext,
 } from "@azure/functions";
 import { z } from "zod";
-import { isValidPrKey } from "../lib";
+import { isValidPrKey } from "../../lib";
 import {
   RoundService,
   RoundServiceError,
   type OpenRoundInput,
   type IdentityResolver,
-} from "../services";
+} from "../../services";
 
 // Thin HTTP entry point for POST /api/prs/{prKey}/rounds. The layer does
 // exactly three things: reject malformed input at the boundary (before

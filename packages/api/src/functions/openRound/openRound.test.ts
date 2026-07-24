@@ -5,7 +5,7 @@ import {
   RoundService,
   RoundServiceError,
   type IdentityResolver,
-} from "../services";
+} from "../../services";
 
 // Contract tests for the POST /api/prs/{prKey}/rounds entry point. The
 // function layer is thin: zod-validate (reject-unknown), call the

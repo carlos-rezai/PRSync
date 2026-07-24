@@ -5,7 +5,7 @@
 // the factories from here, never from a module's internal file. These
 // handlers depend on lib/ and services/ only. See .claude/CLAUDE.md.
 
-export * from "./openRound";
+export * from "./openRound/openRound";
 export * from "./toggleDone";
 export * from "./editLabel";
 export * from "./cancelRound";
