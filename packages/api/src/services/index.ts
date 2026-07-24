@@ -7,4 +7,4 @@
 
 export * from "./RoundService";
 export * from "./NotificationPort/NotificationPort";
-export * from "./IdentityResolver";
+export * from "./IdentityResolver/IdentityResolver";
