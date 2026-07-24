@@ -11,10 +11,7 @@ import type {
   Round,
   RoundReviewer,
 } from "../lib";
-import {
-  PreconditionFailedError,
-  type RoundRepository,
-} from "../storage/RoundRepository";
+import { PreconditionFailedError, type RoundRepository } from "../storage";
 import type { NotificationPort } from "./NotificationPort";
 
 // RoundService owns the lifecycle rules. It derives server-owned fields

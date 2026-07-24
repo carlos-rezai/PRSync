@@ -1,10 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RoundService, RoundServiceError } from "./RoundService";
 import type { NotificationPort } from "./NotificationPort";
-import {
-  PreconditionFailedError,
-  type RoundRepository,
-} from "../storage/RoundRepository";
+import { PreconditionFailedError, type RoundRepository } from "../storage";
 import type { IncomingReviewer, Round, RoundReviewer } from "../lib";
 
 // Behavioural tests over the RoundService public interface, exercised
