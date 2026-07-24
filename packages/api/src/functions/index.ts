@@ -6,7 +6,7 @@
 // handlers depend on lib/ and services/ only. See .claude/CLAUDE.md.
 
 export * from "./openRound/openRound";
-export * from "./toggleDone";
+export * from "./toggleDone/toggleDone";
 export * from "./editLabel";
 export * from "./cancelRound";
 export * from "./getCurrentRound";
