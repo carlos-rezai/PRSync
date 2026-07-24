@@ -5,7 +5,7 @@ import {
   RoundService,
   RoundServiceError,
   type IdentityResolver,
-} from "../services";
+} from "../../services";
 
 // Contract tests for POST /api/prs/{prKey}/rounds/{n}/cancel. The function
 // layer is thin: validate the boundary (prKey, round number), resolve the

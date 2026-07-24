@@ -8,5 +8,5 @@
 export * from "./openRound/openRound";
 export * from "./toggleDone/toggleDone";
 export * from "./editLabel/editLabel";
-export * from "./cancelRound";
+export * from "./cancelRound/cancelRound";
 export * from "./getCurrentRound";
