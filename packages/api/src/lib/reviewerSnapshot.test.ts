@@ -58,7 +58,7 @@ describe("snapshotReviewers", () => {
       done: false,
       teamsIdOverride: null,
     });
-    expect(reviewer.doneAt).toBeUndefined();
+    expect(reviewer?.doneAt).toBeUndefined();
   });
 
   it("returns an empty list when nobody survives filtering", () => {
