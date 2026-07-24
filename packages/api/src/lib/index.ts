@@ -6,7 +6,7 @@
 // through this barrel, to avoid import cycles. See .claude/CLAUDE.md.
 
 export * from "./closePredicate/closePredicate";
-export * from "./label";
+export * from "./label/label";
 export * from "./prKey";
 export * from "./reviewerSnapshot";
 export * from "./roundNumber";
