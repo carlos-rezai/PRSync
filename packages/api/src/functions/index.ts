@@ -7,6 +7,6 @@
 
 export * from "./openRound/openRound";
 export * from "./toggleDone/toggleDone";
-export * from "./editLabel";
+export * from "./editLabel/editLabel";
 export * from "./cancelRound";
 export * from "./getCurrentRound";
