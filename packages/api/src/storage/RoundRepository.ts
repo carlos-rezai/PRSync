@@ -1,5 +1,5 @@
 import { odata, type TableClient, type TableEntity } from "@azure/data-tables";
-import type { Phase, Round, RoundReviewer, RoundStatus } from "../lib/types";
+import type { Phase, Round, RoundReviewer, RoundStatus } from "../lib";
 
 // The repository is the ONLY layer that touches @azure/data-tables.
 // Access is by exact partition key with point reads/writes — user input

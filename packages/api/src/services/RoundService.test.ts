@@ -5,7 +5,7 @@ import {
   PreconditionFailedError,
   type RoundRepository,
 } from "../storage/RoundRepository";
-import type { IncomingReviewer, Round, RoundReviewer } from "../lib/types";
+import type { IncomingReviewer, Round, RoundReviewer } from "../lib";
 
 // Behavioural tests over the RoundService public interface, exercised
 // against an in-memory RoundRepository fake and a spy NotificationPort

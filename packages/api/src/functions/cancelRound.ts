@@ -3,7 +3,7 @@ import type {
   HttpResponseInit,
   InvocationContext,
 } from "@azure/functions";
-import { isValidPrKey } from "../lib/prKey";
+import { isValidPrKey } from "../lib";
 import { RoundService, RoundServiceError } from "../services/RoundService";
 import type { IdentityResolver } from "../services/IdentityResolver";
 

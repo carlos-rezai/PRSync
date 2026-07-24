@@ -4,7 +4,7 @@ import type {
   InvocationContext,
 } from "@azure/functions";
 import { z } from "zod";
-import { isValidPrKey } from "../lib/prKey";
+import { isValidPrKey } from "../lib";
 import {
   RoundService,
   RoundServiceError,

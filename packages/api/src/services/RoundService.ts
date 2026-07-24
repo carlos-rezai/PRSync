@@ -1,14 +1,16 @@
-import { generateLabel } from "../lib/label";
-import { deriveNextRoundNumber } from "../lib/roundNumber";
-import { snapshotReviewers } from "../lib/reviewerSnapshot";
-import { isCloseReached } from "../lib/closePredicate";
+import {
+  generateLabel,
+  deriveNextRoundNumber,
+  snapshotReviewers,
+  isCloseReached,
+} from "../lib";
 import type {
   Author,
   IncomingReviewer,
   Phase,
   Round,
   RoundReviewer,
-} from "../lib/types";
+} from "../lib";
 import {
   PreconditionFailedError,
   type RoundRepository,
