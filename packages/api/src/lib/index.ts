@@ -10,4 +10,4 @@ export * from "./label";
 export * from "./prKey";
 export * from "./reviewerSnapshot";
 export * from "./roundNumber";
-export * from "./types";
+export * from "./types/types";

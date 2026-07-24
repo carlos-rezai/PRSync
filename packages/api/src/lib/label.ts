@@ -1,4 +1,4 @@
-import type { Phase } from "./types";
+import type { Phase } from "./types/types";
 
 // The auto-generated round label reviewers see when the author does not
 // type one. Format follows the ubiquitous-language example exactly:

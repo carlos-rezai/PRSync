@@ -1,4 +1,4 @@
-import type { Round, RoundReviewer } from "./types";
+import type { Round, RoundReviewer } from "./types/types";
 
 // Pure close predicate. A round closes the instant the Done count over
 // the *gating set* reaches the quorum AND every required reviewer is

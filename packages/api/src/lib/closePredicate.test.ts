@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { gatingSet, isCloseReached } from "./closePredicate";
-import type { Round, RoundReviewer } from "./types";
+import type { Round, RoundReviewer } from "./types/types";
 
 // Pure predicate tests. The gating set is the required reviewers when any
 // are required, else every tracked individual (containers and the author
