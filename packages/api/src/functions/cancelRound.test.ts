@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeCancelRoundHandler } from "./cancelRound";
-import { RoundService, RoundServiceError } from "../services/RoundService";
-import type { IdentityResolver } from "../services/IdentityResolver";
+import {
+  RoundService,
+  RoundServiceError,
+  type IdentityResolver,
+} from "../services";
 
 // Contract tests for POST /api/prs/{prKey}/rounds/{n}/cancel. The function
 // layer is thin: validate the boundary (prKey, round number), resolve the

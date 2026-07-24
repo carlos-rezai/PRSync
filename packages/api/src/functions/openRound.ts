@@ -9,8 +9,8 @@ import {
   RoundService,
   RoundServiceError,
   type OpenRoundInput,
-} from "../services/RoundService";
-import type { IdentityResolver } from "../services/IdentityResolver";
+  type IdentityResolver,
+} from "../services";
 
 // Thin HTTP entry point for POST /api/prs/{prKey}/rounds. The layer does
 // exactly three things: reject malformed input at the boundary (before

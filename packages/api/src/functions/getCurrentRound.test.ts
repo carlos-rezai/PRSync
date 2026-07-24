@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeGetCurrentRoundHandler } from "./getCurrentRound";
-import { RoundService } from "../services/RoundService";
-import type { IdentityResolver } from "../services/IdentityResolver";
+import { RoundService, type IdentityResolver } from "../services";
 
 // Contract tests for GET /api/prs/{prKey}/rounds/current. Returns 200
 // with the latest round (any status), 204 when the PR has never had a

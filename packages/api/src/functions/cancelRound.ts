@@ -4,8 +4,11 @@ import type {
   InvocationContext,
 } from "@azure/functions";
 import { isValidPrKey } from "../lib";
-import { RoundService, RoundServiceError } from "../services/RoundService";
-import type { IdentityResolver } from "../services/IdentityResolver";
+import {
+  RoundService,
+  RoundServiceError,
+  type IdentityResolver,
+} from "../services";
 
 // Thin HTTP entry point for POST /api/prs/{prKey}/rounds/{n}/cancel. The
 // layer validates the boundary (prKey, round number — no body), resolves

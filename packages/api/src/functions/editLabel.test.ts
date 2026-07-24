@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeEditLabelHandler } from "./editLabel";
-import { RoundService, RoundServiceError } from "../services/RoundService";
-import type { IdentityResolver } from "../services/IdentityResolver";
+import {
+  RoundService,
+  RoundServiceError,
+  type IdentityResolver,
+} from "../services";
 
 // Contract tests for PATCH /api/prs/{prKey}/rounds/{n}. The function layer
 // is thin: validate the boundary (prKey, round number, and a `{ label }`

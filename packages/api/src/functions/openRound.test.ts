@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeOpenRoundHandler } from "./openRound";
-import { RoundService, RoundServiceError } from "../services/RoundService";
-import type { IdentityResolver } from "../services/IdentityResolver";
+import {
+  RoundService,
+  RoundServiceError,
+  type IdentityResolver,
+} from "../services";
 
 // Contract tests for the POST /api/prs/{prKey}/rounds entry point. The
 // function layer is thin: zod-validate (reject-unknown), call the

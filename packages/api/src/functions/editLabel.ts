@@ -5,8 +5,11 @@ import type {
 } from "@azure/functions";
 import { z } from "zod";
 import { isValidPrKey } from "../lib";
-import { RoundService, RoundServiceError } from "../services/RoundService";
-import type { IdentityResolver } from "../services/IdentityResolver";
+import {
+  RoundService,
+  RoundServiceError,
+  type IdentityResolver,
+} from "../services";
 
 // Thin HTTP entry point for PATCH /api/prs/{prKey}/rounds/{n}. The layer
 // validates the boundary (prKey, round number, and a `{ label }` body —
