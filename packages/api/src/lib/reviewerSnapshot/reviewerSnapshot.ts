@@ -1,4 +1,4 @@
-import type { IncomingReviewer, RoundReviewer } from "./types/types";
+import type { IncomingReviewer, RoundReviewer } from "../types/types";
 
 // The reviewer list is copied from ADO at open time and frozen. Only
 // real, non-author individuals are tracked: containers (teams/groups)

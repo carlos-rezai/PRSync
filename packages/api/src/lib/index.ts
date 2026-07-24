@@ -8,6 +8,6 @@
 export * from "./closePredicate/closePredicate";
 export * from "./label/label";
 export * from "./prKey/prKey";
-export * from "./reviewerSnapshot";
+export * from "./reviewerSnapshot/reviewerSnapshot";
 export * from "./roundNumber";
 export * from "./types/types";

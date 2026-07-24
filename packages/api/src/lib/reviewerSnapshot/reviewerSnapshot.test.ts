@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { snapshotReviewers } from "./reviewerSnapshot";
-import type { IncomingReviewer } from "./types/types";
+import type { IncomingReviewer } from "../types/types";
 
 // The reviewer list is copied from ADO at open time and frozen. Only
 // real, non-author individuals are tracked: containers (teams/groups)
