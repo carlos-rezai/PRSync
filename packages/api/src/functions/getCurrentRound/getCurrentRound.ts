@@ -3,8 +3,8 @@ import type {
   HttpResponseInit,
   InvocationContext,
 } from "@azure/functions";
-import { isValidPrKey } from "../lib";
-import type { RoundService, IdentityResolver } from "../services";
+import { isValidPrKey } from "../../lib";
+import type { RoundService, IdentityResolver } from "../../services";
 
 // Thin HTTP entry point for GET /api/prs/{prKey}/rounds/current. Returns
 // the latest round of any status (200), an empty 204 when the PR has

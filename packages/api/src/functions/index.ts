@@ -9,4 +9,4 @@ export * from "./openRound/openRound";
 export * from "./toggleDone/toggleDone";
 export * from "./editLabel/editLabel";
 export * from "./cancelRound/cancelRound";
-export * from "./getCurrentRound";
+export * from "./getCurrentRound/getCurrentRound";
