@@ -5,7 +5,7 @@
 // Within-layer siblings import each other by direct path, never
 // through this barrel, to avoid import cycles. See .claude/CLAUDE.md.
 
-export * from "./closePredicate";
+export * from "./closePredicate/closePredicate";
 export * from "./label";
 export * from "./prKey";
 export * from "./reviewerSnapshot";
