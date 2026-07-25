@@ -394,3 +394,396 @@ describe("App — Phase 2 Done toggle", () => {
     }
   );
 });
+
+// --- Phase 3: Ready for review ---------------------------------------
+//
+// The author opens the NEXT round with one click. The compose form (phase
+// toggle + pre-filled label + primary "Ready for review") shows ONLY for
+// the author and ONLY when no round is open (a 204, or a terminal
+// closed/cancelled round — per the design decision, the compose form
+// REPLACES the read-only closed view for the author). Two ADO reads are in
+// play: one when the compose form is shown (to gate the button on eligible
+// reviewers), and a fresh authoritative one at the instant "Ready for
+// review" is clicked, whose reviewers/title/url are handed to `openRound`.
+//
+// Rules under test (issue #10 / PRD #7 Phase 3):
+//   - phase defaults to the previous round's phase, or `spec` when none;
+//   - clicking reads ADO live, THEN calls `openRound` with that snapshot;
+//   - the label default is derived — omitted when untouched, exact when
+//     edited (so the panel and DB never diverge on wording);
+//   - the button is disabled with a hint when the fresh snapshot has zero
+//     eligible individual reviewers besides the author;
+//   - a `422 INSUFFICIENT_REVIEWERS` maps to an inline validation message
+//     (the server-owned backstop).
+// Every assertion is through the injected `sdk`/`api`/`ado` fakes and the
+// rendered controls — never component internals. Terminology:
+// docs/ubiquitous-language.md.
+
+// A live ADO reviewer as the `ado` GitClient seam yields it — the shape
+// that maps to Feature 1's IncomingReviewer (adoId/email/displayName/
+// isRequired/isContainer). Containers and the author are dropped SERVER-
+// side (snapshotReviewers), so the panel sends the raw list unfiltered.
+interface AdoReviewerLite {
+  adoId: string;
+  displayName: string;
+  email: string;
+  isRequired: boolean;
+  isContainer: boolean;
+}
+
+function adoReviewer(
+  adoId: string,
+  displayName: string,
+  opts: { isRequired?: boolean; isContainer?: boolean } = {}
+): AdoReviewerLite {
+  return {
+    adoId,
+    displayName,
+    email: `${displayName.toLowerCase().replace(/\s+/g, "")}@example.com`,
+    isRequired: opts.isRequired ?? true,
+    isContainer: opts.isContainer ?? false,
+  };
+}
+
+// An `ado` fake whose getPullRequest yields a full live PR — createdBy
+// identity (id + name + email, the author's display/Teams data the
+// openRound body carries) plus the reviewer snapshot, title, and url.
+function makeAdoP3(opts: {
+  createdByAdoId: string;
+  reviewers: AdoReviewerLite[];
+  title?: string;
+  url?: string;
+  createdByName?: string;
+  createdByEmail?: string;
+}): AdoClient {
+  return {
+    getPullRequest: vi.fn().mockResolvedValue({
+      createdByAdoId: opts.createdByAdoId,
+      createdByName: opts.createdByName ?? "The Author",
+      createdByEmail: opts.createdByEmail ?? "author@example.com",
+      reviewers: opts.reviewers,
+      title: opts.title ?? "Add the widget",
+      url: opts.url ?? "https://example.com/pr/42",
+    }),
+  } as unknown as AdoClient;
+}
+
+function makeApiP3(opts: {
+  getCurrentRound: ApiClient["getCurrentRound"];
+  openRound: (
+    prKey: string,
+    request: {
+      phase: Round["phase"];
+      reviewers: AdoReviewerLite[];
+      prTitle: string;
+      prUrl: string;
+      author: { name: string; email: string };
+      label?: string;
+    }
+  ) => Promise<Round>;
+}): ApiClient {
+  return opts as unknown as ApiClient;
+}
+
+function readyButton(): HTMLElement {
+  return screen.getByRole("button", { name: /ready for review/i });
+}
+
+describe("App — Phase 3 Ready for review", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows the author the compose form (phase toggle + Ready) on a 204", async () => {
+    const openRound = vi.fn();
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null), // 204 → no round
+      openRound,
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID, // viewer created the PR
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    // Both phase options and the primary action are present and enabled.
+    const ready = await screen.findByRole("button", {
+      name: /ready for review/i,
+    });
+    expect(ready).not.toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: /use case review/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /implementation review/i })
+    ).toBeInTheDocument();
+  });
+
+  it("shows no Ready for review button to a non-author on a 204", async () => {
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound: vi.fn(),
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID, // PR created by someone else
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(STRANGER_ID), api, ado);
+
+    expect(await screen.findByText(/no round yet/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /ready for review/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows no Ready for review button to the author while a round is open", async () => {
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()), // open round
+      openRound: vi.fn(),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    }));
+
+    // The open round renders; a second round can't be opened concurrently.
+    expect(
+      await screen.findByText("Round 2 — Implementation Review")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /ready for review/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("reads ADO live at the click, THEN calls openRound with that snapshot", async () => {
+    const openRound = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound,
+    });
+    const rev = adoReviewer(REVIEWER_ONE_ID, "Rev One");
+    const ado = makeAdoP3({ createdByAdoId: AUTHOR_ID, reviewers: [rev] });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: /ready for review/i,
+    }));
+
+    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+
+    // The click read ADO afresh (in addition to the compose-gate read),
+    // and openRound got the live reviewers + title + url + author.
+    expect(ado.getPullRequest).toHaveBeenCalledTimes(2);
+    expect(openRound).toHaveBeenCalledWith(
+      PR_KEY,
+      expect.objectContaining({
+        phase: "spec",
+        reviewers: [rev],
+        prTitle: "Add the widget",
+        prUrl: "https://example.com/pr/42",
+        author: { name: "The Author", email: "author@example.com" },
+      })
+    );
+
+    // Sequencing: the fresh ADO read precedes the openRound call.
+    const lastAdoRead = (ado.getPullRequest as ReturnType<typeof vi.fn>).mock
+      .invocationCallOrder.at(-1) as number;
+    const openCall = openRound.mock.invocationCallOrder[0];
+    expect(lastAdoRead).toBeLessThan(openCall);
+  });
+
+  it("omits the label when the author leaves it untouched", async () => {
+    const openRound = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound,
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: /ready for review/i,
+    }));
+
+    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    // Untouched → label omitted so the API generates it canonically.
+    expect(openRound.mock.calls[0][1].label).toBeUndefined();
+  });
+
+  it("sends the exact label text when the author edits it", async () => {
+    const openRound = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound,
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    await screen.findByRole("button", { name: /ready for review/i });
+    const label = screen.getByRole("textbox");
+    fireEvent.change(label, { target: { value: "Round 1 — Please look" } });
+
+    fireEvent.click(readyButton());
+
+    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    expect(openRound.mock.calls[0][1].label).toBe("Round 1 — Please look");
+  });
+
+  it("defaults the phase to spec on a 204 (no previous round)", async () => {
+    const openRound = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound,
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: /ready for review/i,
+    }));
+
+    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    expect(openRound.mock.calls[0][1].phase).toBe("spec");
+  });
+
+  it("defaults the phase to the previous round's phase on a closed round", async () => {
+    // The author views a terminal (closed) round → compose the NEXT round.
+    const closed = makeRound({
+      roundNumber: 2,
+      phase: "implementation",
+      status: "closed",
+      closedAt: "2026-07-25T02:00:00.000Z",
+      reviewers: [
+        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
+        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
+      ],
+    });
+    const openRound = vi.fn().mockResolvedValue(makeRound({ roundNumber: 3 }));
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(closed),
+      openRound,
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    // The compose form replaces the read-only closed view for the author,
+    // and reads ADO once up front to gate the button.
+    fireEvent.click(await screen.findByRole("button", {
+      name: /ready for review/i,
+    }));
+
+    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    expect(openRound.mock.calls[0][1].phase).toBe("implementation");
+  });
+
+  it("flips the phase sent when the author toggles to Implementation Review", async () => {
+    const openRound = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null), // 204 → default spec
+      openRound,
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    await screen.findByRole("button", { name: /ready for review/i });
+    fireEvent.click(
+      screen.getByRole("button", { name: /implementation review/i })
+    );
+    fireEvent.click(readyButton());
+
+    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    expect(openRound.mock.calls[0][1].phase).toBe("implementation");
+  });
+
+  it("disables Ready with a hint when the snapshot has zero eligible reviewers", async () => {
+    const openRound = vi.fn();
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound,
+    });
+    // Only a container (team) and the author himself — no eligible individual.
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [
+        adoReviewer("team-guid", "The Team", { isContainer: true }),
+        adoReviewer(AUTHOR_ID, "The Author"),
+      ],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    const ready = await screen.findByRole("button", {
+      name: /ready for review/i,
+    });
+    expect(ready).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText(/eligible reviewer/i)).toBeInTheDocument();
+
+    // A disabled primary action can never fire the open call.
+    fireEvent.click(ready);
+    expect(openRound).not.toHaveBeenCalled();
+  });
+
+  it("maps a 422 INSUFFICIENT_REVIEWERS to an inline validation message", async () => {
+    const openRound = vi
+      .fn()
+      .mockRejectedValue(new ApiError(422, "INSUFFICIENT_REVIEWERS"));
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound,
+    });
+    // Client pre-check passes (one eligible reviewer), so the button is
+    // enabled — the server's 422 is the authoritative backstop.
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: /ready for review/i,
+    }));
+
+    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    expect(
+      await screen.findByText(/eligible reviewer/i)
+    ).toBeInTheDocument();
+  });
+
+  it("reconciles to the returned open round after a successful openRound", async () => {
+    const opened = makeRound(); // open, "1 of 2 reviewed"
+    const openRound = vi.fn().mockResolvedValue(opened);
+    const api = makeApiP3({
+      getCurrentRound: vi.fn().mockResolvedValue(null),
+      openRound,
+    });
+    const ado = makeAdoP3({
+      createdByAdoId: AUTHOR_ID,
+      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, ado);
+
+    fireEvent.click(await screen.findByRole("button", {
+      name: /ready for review/i,
+    }));
+
+    // The returned Round replaces panel state — the new open round renders.
+    expect(
+      await screen.findByText("Round 2 — Implementation Review")
+    ).toBeInTheDocument();
+    expect(screen.getByText(/1 of 2 reviewed/i)).toBeInTheDocument();
+  });
+});
