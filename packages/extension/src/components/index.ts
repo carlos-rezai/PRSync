@@ -8,6 +8,6 @@ export * from "./RoundView/RoundView";
 export * from "./ReviewerList/ReviewerList";
 export * from "./StatusPill/StatusPill";
 export * from "./EmptyState/EmptyState";
-export * from "./ComposePlaceholder/ComposePlaceholder";
+export * from "./ComposeForm/ComposeForm";
 export * from "./LoadingState/LoadingState";
 export * from "./ErrorState/ErrorState";

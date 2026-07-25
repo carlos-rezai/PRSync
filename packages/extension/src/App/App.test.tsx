@@ -377,9 +377,7 @@ describe("App — Phase 2 Done toggle", () => {
         .fn()
         .mockResolvedValueOnce(open) // initial load
         .mockResolvedValueOnce(healed); // drift re-fetch
-      const toggleDone = vi
-        .fn()
-        .mockRejectedValue(new ApiError(status, code));
+      const toggleDone = vi.fn().mockRejectedValue(new ApiError(status, code));
       const api = makeApiP2({ getCurrentRound, toggleDone });
       renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
 
@@ -541,10 +539,14 @@ describe("App — Phase 3 Ready for review", () => {
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()), // open round
       openRound: vi.fn(),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    }));
+    renderApp(
+      makeSdk(AUTHOR_ID),
+      api,
+      makeAdoP3({
+        createdByAdoId: AUTHOR_ID,
+        reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+      })
+    );
 
     // The open round renders; a second round can't be opened concurrently.
     expect(
@@ -565,9 +567,11 @@ describe("App — Phase 3 Ready for review", () => {
     const ado = makeAdoP3({ createdByAdoId: AUTHOR_ID, reviewers: [rev] });
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
-    fireEvent.click(await screen.findByRole("button", {
-      name: /ready for review/i,
-    }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /ready for review/i,
+      })
+    );
 
     await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
 
@@ -586,9 +590,10 @@ describe("App — Phase 3 Ready for review", () => {
     );
 
     // Sequencing: the fresh ADO read precedes the openRound call.
-    const lastAdoRead = (ado.getPullRequest as ReturnType<typeof vi.fn>).mock
-      .invocationCallOrder.at(-1) as number;
-    const openCall = openRound.mock.invocationCallOrder[0];
+    const lastAdoRead = (
+      ado.getPullRequest as ReturnType<typeof vi.fn>
+    ).mock.invocationCallOrder.at(-1) as number;
+    const openCall = openRound.mock.invocationCallOrder[0] as number;
     expect(lastAdoRead).toBeLessThan(openCall);
   });
 
@@ -604,13 +609,15 @@ describe("App — Phase 3 Ready for review", () => {
     });
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
-    fireEvent.click(await screen.findByRole("button", {
-      name: /ready for review/i,
-    }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /ready for review/i,
+      })
+    );
 
     await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
     // Untouched → label omitted so the API generates it canonically.
-    expect(openRound.mock.calls[0][1].label).toBeUndefined();
+    expect(openRound.mock.calls[0]?.[1].label).toBeUndefined();
   });
 
   it("sends the exact label text when the author edits it", async () => {
@@ -632,7 +639,7 @@ describe("App — Phase 3 Ready for review", () => {
     fireEvent.click(readyButton());
 
     await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0][1].label).toBe("Round 1 — Please look");
+    expect(openRound.mock.calls[0]?.[1].label).toBe("Round 1 — Please look");
   });
 
   it("defaults the phase to spec on a 204 (no previous round)", async () => {
@@ -647,12 +654,14 @@ describe("App — Phase 3 Ready for review", () => {
     });
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
-    fireEvent.click(await screen.findByRole("button", {
-      name: /ready for review/i,
-    }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /ready for review/i,
+      })
+    );
 
     await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0][1].phase).toBe("spec");
+    expect(openRound.mock.calls[0]?.[1].phase).toBe("spec");
   });
 
   it("defaults the phase to the previous round's phase on a closed round", async () => {
@@ -680,12 +689,14 @@ describe("App — Phase 3 Ready for review", () => {
 
     // The compose form replaces the read-only closed view for the author,
     // and reads ADO once up front to gate the button.
-    fireEvent.click(await screen.findByRole("button", {
-      name: /ready for review/i,
-    }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /ready for review/i,
+      })
+    );
 
     await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0][1].phase).toBe("implementation");
+    expect(openRound.mock.calls[0]?.[1].phase).toBe("implementation");
   });
 
   it("flips the phase sent when the author toggles to Implementation Review", async () => {
@@ -707,7 +718,7 @@ describe("App — Phase 3 Ready for review", () => {
     fireEvent.click(readyButton());
 
     await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0][1].phase).toBe("implementation");
+    expect(openRound.mock.calls[0]?.[1].phase).toBe("implementation");
   });
 
   it("disables Ready with a hint when the snapshot has zero eligible reviewers", async () => {
@@ -753,14 +764,14 @@ describe("App — Phase 3 Ready for review", () => {
     });
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
-    fireEvent.click(await screen.findByRole("button", {
-      name: /ready for review/i,
-    }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /ready for review/i,
+      })
+    );
 
     await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(
-      await screen.findByText(/eligible reviewer/i)
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/eligible reviewer/i)).toBeInTheDocument();
   });
 
   it("reconciles to the returned open round after a successful openRound", async () => {
@@ -776,9 +787,11 @@ describe("App — Phase 3 Ready for review", () => {
     });
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
-    fireEvent.click(await screen.findByRole("button", {
-      name: /ready for review/i,
-    }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /ready for review/i,
+      })
+    );
 
     // The returned Round replaces panel state — the new open round renders.
     expect(

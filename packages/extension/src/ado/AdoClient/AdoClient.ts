@@ -17,9 +17,16 @@ export interface AdoReviewer {
   isContainer: boolean;
 }
 
-/** The slice of ADO's live PR the panel cares about. */
+/**
+ * The slice of ADO's live PR the panel cares about. `createdByName` /
+ * `createdByEmail` are inert display/Teams data for the `openRound` body —
+ * the API records the author's identity from the caller's token, never
+ * from these.
+ */
 export interface AdoPullRequest {
   createdByAdoId: string;
+  createdByName: string;
+  createdByEmail: string;
   reviewers: AdoReviewer[];
   title: string;
   url: string;
@@ -40,6 +47,8 @@ export function createAdoClient(): AdoClient {
       );
       return {
         createdByAdoId: pr.createdBy.id,
+        createdByName: pr.createdBy.displayName,
+        createdByEmail: pr.createdBy.uniqueName,
         title: pr.title,
         url: pr.url,
         reviewers: pr.reviewers.map((reviewer) => ({
