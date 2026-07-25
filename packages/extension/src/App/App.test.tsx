@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { App } from "./App";
 import type { SdkClient } from "../sdk";
 import type { ApiClient } from "../api";
+import { ApiError } from "../api";
 import type { AdoClient } from "../ado";
 import type { Round, RoundReviewer } from "../lib";
 
@@ -196,4 +197,200 @@ describe("App — Phase 1 read-only load paths", () => {
 
     expect(await screen.findByText(/couldn't load/i)).toBeInTheDocument();
   });
+});
+
+// --- Phase 2: Done toggle --------------------------------------------
+//
+// A reviewer signals Done on the open round from their OWN row only. The
+// click flips optimistically, calls `toggleDone` (carrying no reviewer id —
+// the API targets the authenticated caller), then REPLACES panel state with
+// the returned `Round` (authoritative — surfaces an auto-close the moment
+// the toggle meets quorum, freezing the whole list). On error the flip
+// reverts with an inline message; a drift-class 409/403 maps via
+// `mapApiError` to a re-fetch that self-heals the client. Every assertion is
+// through the injected `api` fake and the rendered checkboxes — never
+// component internals. Issue #9 / PRD #7 "Done toggle". Terminology:
+// docs/ubiquitous-language.md.
+
+// The canonical PR key the panel builds from the contribution context —
+// the exact {guid}:{guid}:{int} string toggleDone must be called with.
+const PR_KEY = `${PROJECT_ID}:${REPO_ID}:42`;
+
+function makeApiP2(opts: {
+  getCurrentRound: ApiClient["getCurrentRound"];
+  toggleDone: (
+    prKey: string,
+    roundNumber: number,
+    done: boolean
+  ) => Promise<Round>;
+}): ApiClient {
+  return opts as unknown as ApiClient;
+}
+
+// The Done checkbox (azure-devops-ui) renders role="checkbox" with an
+// aria-label carrying the reviewer's display name; these read its state.
+function checkbox(name: RegExp): HTMLElement {
+  return screen.getByRole("checkbox", { name });
+}
+
+describe("App — Phase 2 Done toggle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("makes only the reviewer's own row interactive while the round is open", async () => {
+    const api = makeApiP2({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      toggleDone: vi.fn(),
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+
+    // The viewer's own row is interactive; the other reviewer's is not.
+    const own = await screen.findByRole("checkbox", { name: /Rev One/i });
+    expect(own).toHaveAttribute("aria-disabled", "false");
+    expect(checkbox(/Rev Two/i)).toHaveAttribute("aria-disabled", "true");
+
+    // Clicking someone else's row can never signal Done on their behalf.
+    fireEvent.click(checkbox(/Rev Two/i));
+    expect(api.toggleDone).not.toHaveBeenCalled();
+  });
+
+  it("shows the author and the bystander every Done checkbox read-only", async () => {
+    for (const viewer of [AUTHOR_ID, STRANGER_ID]) {
+      const api = makeApiP2({
+        getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+        toggleDone: vi.fn(),
+      });
+      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo(AUTHOR_ID));
+
+      const one = await screen.findByRole("checkbox", { name: /Rev One/i });
+      expect(one).toHaveAttribute("aria-disabled", "true");
+      expect(checkbox(/Rev Two/i)).toHaveAttribute("aria-disabled", "true");
+      unmount();
+    }
+  });
+
+  it("flips optimistically, calls toggleDone, then reconciles to the returned round", async () => {
+    // A deferred toggle lets us observe the optimistic flip before the PATCH
+    // resolves; it then resolves with a CLOSED round (quorum met).
+    let resolveToggle: (round: Round) => void = () => {};
+    const toggleDone = vi.fn().mockReturnValue(
+      new Promise<Round>((resolve) => {
+        resolveToggle = resolve;
+      })
+    );
+    const closed = makeRound({
+      status: "closed",
+      closedAt: "2026-07-25T02:00:00.000Z",
+      reviewers: [
+        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
+        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
+      ],
+    });
+    const api = makeApiP2({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      toggleDone,
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+
+    const own = await screen.findByRole("checkbox", { name: /Rev One/i });
+    expect(own).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(own);
+
+    // Optimistic: checked immediately, and the PATCH carries the caller's
+    // intent with NO reviewer id (positional prKey, round number, done).
+    expect(checkbox(/Rev One/i)).toHaveAttribute("aria-checked", "true");
+    expect(toggleDone).toHaveBeenCalledWith(PR_KEY, 2, true);
+
+    // Reconcile: the returned closed round flips the pill and freezes the
+    // whole list — the auto-close is surfaced immediately.
+    resolveToggle(closed);
+    expect(await screen.findByText(/all reviewed/i)).toBeInTheDocument();
+    expect(checkbox(/Rev One/i)).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("reverts the optimistic flip and shows an inline message when the toggle fails", async () => {
+    const getCurrentRound = vi.fn().mockResolvedValue(makeRound());
+    const toggleDone = vi.fn().mockRejectedValue(new ApiError(500, null));
+    const api = makeApiP2({ getCurrentRound, toggleDone });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+
+    const own = await screen.findByRole("checkbox", { name: /Rev One/i });
+    fireEvent.click(own);
+
+    // The optimistic flip happens...
+    expect(checkbox(/Rev One/i)).toHaveAttribute("aria-checked", "true");
+
+    // ...then reverts once the PATCH rejects, with an inline recovery hint.
+    await waitFor(() =>
+      expect(checkbox(/Rev One/i)).toHaveAttribute("aria-checked", "false")
+    );
+    expect(
+      screen.getByText(/couldn't|could not|failed|try again|went wrong/i)
+    ).toBeInTheDocument();
+
+    // A generic failure must NOT trigger a drift re-fetch.
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+  });
+
+  it("freezes the reviewer's own checkbox once the round is closed", async () => {
+    const closed = makeRound({
+      status: "closed",
+      closedAt: "2026-07-25T02:00:00.000Z",
+      reviewers: [
+        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
+        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
+      ],
+    });
+    const toggleDone = vi.fn();
+    const api = makeApiP2({
+      getCurrentRound: vi.fn().mockResolvedValue(closed),
+      toggleDone,
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+
+    const own = await screen.findByRole("checkbox", { name: /Rev One/i });
+    expect(own).toHaveAttribute("aria-disabled", "true");
+
+    fireEvent.click(own);
+    expect(toggleDone).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [409, "ROUND_NOT_OPEN"],
+    [403, "NOT_A_REVIEWER"],
+  ])(
+    "self-heals via a re-fetch when toggleDone drifts (%s %s)",
+    async (status, code) => {
+      const open = makeRound();
+      // The true state the re-fetch discovers: the round already closed.
+      const healed = makeRound({
+        status: "closed",
+        closedAt: "2026-07-25T02:00:00.000Z",
+        reviewers: [
+          makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
+          makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
+        ],
+      });
+      const getCurrentRound = vi
+        .fn()
+        .mockResolvedValueOnce(open) // initial load
+        .mockResolvedValueOnce(healed); // drift re-fetch
+      const toggleDone = vi
+        .fn()
+        .mockRejectedValue(new ApiError(status, code));
+      const api = makeApiP2({ getCurrentRound, toggleDone });
+      renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+
+      const own = await screen.findByRole("checkbox", { name: /Rev One/i });
+      fireEvent.click(own);
+
+      // The drift maps (via mapApiError) to a re-fetch that reconciles the
+      // client to the true, closed state — the panel self-heals.
+      expect(await screen.findByText(/all reviewed/i)).toBeInTheDocument();
+      await waitFor(() => expect(getCurrentRound).toHaveBeenCalledTimes(2));
+      expect(checkbox(/Rev One/i)).toHaveAttribute("aria-disabled", "true");
+    }
+  );
 });
