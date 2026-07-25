@@ -49,10 +49,35 @@ state.
 | **Round-closed notification** _(new)_ | The single "safe to proceed" DM sent to the author when a round closes.                                                                                                                    | Author alert          |
 | **NotificationPort** _(new)_          | The domain-language seam (`roundOpened` / `roundClosed`) that round-lifecycle calls to trigger DMs; in v1 a no-op logging stub, with the real bot adapter supplied by Feature 3 behind it. | Dispatcher, notifier  |
 
+## Panel (extension UI)
+
+Terms introduced during the Extension Panel grill-me
+(`docs/design-logs/02-extension-panel.md`, 2026-07-25).
+
+| Term                          | Definition                                                                                                                                                                                                                          | Aliases to avoid          |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **Panel** _(new)_             | The PRSync PR-page surface — a React + `azure-devops-ui` tab contributed on the ADO pull-request page, running in an ADO-hosted iframe.                                                                                             | Widget, extension, tab    |
+| **Viewer** _(new)_            | The person currently looking at the **Panel**. Resolves to exactly one role for the current round: **Author**, **Reviewer**, or **Bystander**. Identity is presentation-only (`SDK.getUser().id`), never trusted for authorization. | Current user, me          |
+| **Bystander** _(new)_         | A **Viewer** who is neither the **Author** nor a tracked **Reviewer** of the current round; sees a read-only panel.                                                                                                                 | Observer, guest, other    |
+| **Compose form** _(new)_      | The author-only controls (phase toggle + editable label) shown when no round is `open`, used to configure and fire the next **Ready for review**.                                                                                   | New-round form, draft     |
+| **Drift** _(new)_             | A divergence between the round the **Viewer** is looking at and a freshly-polled round, caused by someone else's change. Surfaced via the **Refresh banner**, never silently patched.                                               | Staleness, desync         |
+| **Round fingerprint** _(new)_ | A client-computed digest of a round's salient lifecycle fields (`roundNumber`, `status`, `phase`, `label`, per-reviewer `done`) used to detect **Drift**.                                                                           | Hash, checksum, version   |
+| **Baseline** _(new)_          | The **Round fingerprint** of the last state the **Viewer** has seen or acted on; the viewer's own mutations reset it, so only others' changes register as **Drift**.                                                                | Snapshot, last-seen       |
+| **Refresh banner** _(new)_    | The info `MessageCard` shown when polling detects **Drift**; the **Viewer** must click it to re-render — PRSync never silently live-patches an open panel.                                                                          | Toast, alert, live update |
+
 ## Relationships
 
 - A **PR** (identified by its **PR key**) has many **Rounds**; at most
   one is `open`.
+- The **Panel** renders one **Round** (the current one) and derives the
+  **Viewer**'s role — **Author**, **Reviewer**, or **Bystander** —
+  against it.
+- The **Panel** reads round state from the PRSync API; it reads ADO's
+  live **Reviewer list** only at the **Ready for review** click (the
+  snapshot moment), never on load or poll.
+- Polling compares each fetched **Round fingerprint** against the
+  **Baseline**; a mismatch is **Drift** and raises the **Refresh
+  banner**.
 - A **Round** has one **Phase**, one **Round label**, one **Quorum**,
   and one mirrored **Reviewer list**.
 - A **Round** closes when its **Done** count reaches its **Quorum**;
@@ -80,6 +105,16 @@ state.
 > **Dev:** "So only a real close sends the author's 'safe to proceed'?"
 > **Domain expert:** "Right — **Round closed** fires the
 > **Round-closed notification**; **Cancelled** is silent."
+> **Dev:** "In the **Panel**, if I'm not on the PR at all, what do I
+> see?"
+> **Domain expert:** "You're a **Bystander** — read-only. Only the
+> **Author** gets the **Compose form**, and only a snapshotted
+> **Reviewer** gets a live **Done** checkbox."
+> **Dev:** "And if a reviewer clicks **Done** while I'm looking, does my
+> panel just change under me?"
+> **Domain expert:** "No — polling notices the **Round fingerprint** no
+> longer matches your **Baseline**, that's **Drift**, and you get a
+> **Refresh banner** to click. We never silently live-patch."
 
 ## Flagged ambiguities
 
@@ -99,6 +134,11 @@ state.
   linked.
 - **adoId vs. email** — identity is always **adoId**; email is inert
   data used only for Teams resolution, never for authorization.
+- **Author / Reviewer / Bystander are per-round roles, not accounts**
+  _(new)_ — a **Viewer**'s role is resolved against the current round;
+  the same person can be **Author** of one round and **Reviewer** or
+  **Bystander** of another. The role governs only what the **Panel**
+  renders — the API re-authorizes every action server-side by **adoId**.
 
 ## Deferred / not yet modeled
 
