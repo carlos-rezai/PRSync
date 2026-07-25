@@ -7,3 +7,4 @@ export * from "./types/types";
 export * from "./buildPrKey/buildPrKey";
 export * from "./deriveRole/deriveRole";
 export * from "./deriveDefaultLabel/deriveDefaultLabel";
+export * from "./mapApiError/mapApiError";

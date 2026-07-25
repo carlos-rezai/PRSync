@@ -2,3 +2,4 @@
 // layers import `../api`.
 
 export * from "./ApiClient/ApiClient";
+export * from "./ApiError/ApiError";
