@@ -3,15 +3,13 @@ import {
   buildPrKey,
   deriveRole,
   hasEligibleReviewers,
-  mapApiError,
-  roundFingerprint,
   withSingleRetry,
 } from "../lib";
-import { ApiError } from "../lib";
-import type { Phase, Round } from "../lib";
+import type { Phase } from "../lib";
+import { usePanelState } from "../hooks";
 import type { SdkClient } from "../sdk";
 import type { ApiClient } from "../api";
-import type { AdoClient, AdoPullRequest } from "../ado";
+import type { AdoClient } from "../ado";
 import {
   ComposeForm,
   EmptyState,
@@ -72,159 +70,23 @@ interface AppProps {
   ado: AdoClient;
 }
 
-type LoadState =
-  | { status: "loading" }
-  | { status: "error" }
-  | { status: "ready"; round: Round | null; pr: AdoPullRequest | null };
-
-/** Poll cadence, within the layout spec's 15–30s window. */
-const POLL_INTERVAL_MS = 20_000;
-
 export function App({ sdk, api, ado }: AppProps): React.ReactElement {
-  const [state, setState] = React.useState<LoadState>({ status: "loading" });
-  // One inline slot for every round mutation (toggle / label / cancel) —
-  // they share the same failure contract and the same place on screen.
-  const [mutationError, setMutationError] = React.useState<string | null>(null);
-  const [openError, setOpenError] = React.useState<string | null>(null);
-  const [opening, setOpening] = React.useState(false);
-  // Raised by a poll that found someone else's change; lowered only by an
-  // authoritative state landing (`commit`).
-  const [drifted, setDrifted] = React.useState(false);
-
-  // The digest of the last authoritative state the viewer saw — what a
-  // poll compares against. `null` means the panel never settled, which
-  // also suspends polling (there is nothing to drift from, and a viewer
-  // staring at the load error is told to refresh the page instead).
-  const baselineRef = React.useRef<string | null>(null);
-  // True while a mutation of the VIEWER'S OWN is in flight, so a poll can
-  // never land on top of their optimistic update.
-  const mutatingRef = React.useRef(false);
-
-  // The single path for applying authoritative state. What the viewer now
-  // sees is by definition what they have seen, so it is also the new drift
-  // baseline — and it answers any banner already raised.
-  const commit = React.useCallback((next: LoadState): void => {
-    baselineRef.current =
-      next.status === "ready" ? roundFingerprint(next.round) : null;
-    setDrifted(false);
-    setState(next);
-  }, []);
-
-  // Settles the ready state around a round, reading ADO's live PR only
-  // when a compose form may follow: no round at all (the read also decides
-  // author vs. bystander), or a terminal round the author could follow
-  // with the next one. An open round is self-sufficient.
-  const settle = React.useCallback(
-    async (round: Round | null): Promise<LoadState> => {
-      const mayCompose =
-        round === null ||
-        (round.status !== "open" && sdk.getUser().id === round.authorAdoId);
-      const pr = mayCompose ? await ado.getPullRequest(sdk.prKeyParts()) : null;
-      return { status: "ready", round, pr };
-    },
-    [sdk, ado]
-  );
-
-  // Reads the current round and settles around it — shared by the initial
-  // load and the drift-heal re-fetch.
-  const resolveReadyState = React.useCallback(async (): Promise<LoadState> => {
-    return settle(await api.getCurrentRound(buildPrKey(sdk.prKeyParts())));
-  }, [sdk, api, settle]);
-
-  // Routes a mutation failure. A drift-class 409/403 re-fetches the true
-  // state and self-heals in place, returning `null` (nothing left to
-  // show); anything else returns the message to surface inline.
-  const routeFailure = React.useCallback(
-    async (error: unknown): Promise<string | null> => {
-      const guidance =
-        error instanceof ApiError
-          ? mapApiError(error.status, error.code)
-          : mapApiError(500, null);
-
-      if (guidance.recovery !== "refetch") {
-        return guidance.message;
-      }
-      try {
-        commit(await resolveReadyState());
-      } catch {
-        commit({ status: "error" });
-      }
-      return null;
-    },
-    [resolveReadyState, commit]
-  );
-
-  React.useEffect(() => {
-    let cancelled = false;
-    resolveReadyState()
-      .then((next) => {
-        if (!cancelled) {
-          commit(next);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          commit({ status: "error" });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [resolveReadyState, commit]);
-
-  // One poll: read the current round and compare it to the baseline. The
-  // polled round is deliberately DISCARDED — a divergence only raises the
-  // banner, and the click re-reads the true state for itself.
-  const poll = React.useCallback(async (): Promise<void> => {
-    // Skipped rather than rescheduled: `document.hidden` (Page Visibility)
-    // means a backgrounded panel spends nothing, an in-flight mutation of
-    // the viewer's owns the state until it reconciles, and an unsettled
-    // panel has no baseline to compare against.
-    if (
-      document.hidden ||
-      mutatingRef.current ||
-      baselineRef.current === null
-    ) {
-      return;
-    }
-    try {
-      const polled = await api.getCurrentRound(buildPrKey(sdk.prKeyParts()));
-      if (roundFingerprint(polled) !== baselineRef.current) {
-        setDrifted(true);
-      }
-    } catch {
-      // A failed poll is silent: what the viewer is reading is still valid,
-      // and the next tick tries again.
-    }
-  }, [sdk, api]);
-
-  React.useEffect(() => {
-    const timer = window.setInterval(() => {
-      void poll();
-    }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [poll]);
-
-  // Autosize (PRD #7 Phase 6): the panel lives in an iframe the HOST
-  // sizes, and nothing it draws changes that height on its own. Every
-  // render here IS a content change — the panel only re-renders when its
-  // state moves (a round settles, a mutation swaps the view, the refresh
-  // banner appears) — so asking the host to re-measure after each commit
-  // is both the complete answer and the only one that needs no guess at
-  // what the new height should be. Deliberately dependency-free: a list of
-  // "things that affect height" is a list that silently goes stale.
-  React.useEffect(() => {
-    sdk.resize();
-  });
-
-  // The banner's action — the only path that updates a drifted panel.
-  async function handleRefresh(): Promise<void> {
-    try {
-      commit(await resolveReadyState());
-    } catch {
-      commit({ status: "error" });
-    }
-  }
+  const {
+    state,
+    mutationError,
+    openError,
+    opening,
+    drifted,
+    refresh,
+    setState,
+    setMutationError,
+    setOpenError,
+    setOpening,
+    mutatingRef,
+    commit,
+    settle,
+    routeFailure,
+  } = usePanelState({ sdk, api, ado });
 
   async function handleToggleOwn(): Promise<void> {
     if (state.status !== "ready" || state.round === null) {
@@ -444,7 +306,7 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
       {drifted && (
         <RefreshBanner
           onRefresh={() => {
-            void handleRefresh();
+            void refresh();
           }}
         />
       )}
