@@ -1,11 +1,5 @@
 import * as React from "react";
-import {
-  buildPrKey,
-  deriveRole,
-  hasEligibleReviewers,
-  withSingleRetry,
-} from "../lib";
-import type { Phase } from "../lib";
+import { deriveRole, hasEligibleReviewers } from "../lib";
 import { usePanelState } from "../hooks";
 import type { SdkClient } from "../sdk";
 import type { ApiClient } from "../api";
@@ -78,156 +72,11 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
     opening,
     drifted,
     refresh,
-    setState,
-    setMutationError,
-    setOpenError,
-    setOpening,
-    mutatingRef,
-    commit,
-    settle,
-    routeFailure,
+    toggleOwn,
+    editLabel,
+    cancelRound,
+    openRound,
   } = usePanelState({ sdk, api, ado });
-
-  async function handleToggleOwn(): Promise<void> {
-    if (state.status !== "ready" || state.round === null) {
-      return;
-    }
-    const currentRound = state.round;
-    const currentPr = state.pr;
-    const viewerAdoId = sdk.getUser().id;
-    const me = currentRound.reviewers.find(
-      (reviewer) => reviewer.adoId === viewerAdoId
-    );
-    if (me === undefined) {
-      return;
-    }
-    const nextDone = !me.done;
-
-    // Optimistic: flip the viewer's own row before the PATCH resolves.
-    setMutationError(null);
-    setState({
-      status: "ready",
-      round: {
-        ...currentRound,
-        reviewers: currentRound.reviewers.map((reviewer) =>
-          reviewer.adoId === viewerAdoId
-            ? { ...reviewer, done: nextDone }
-            : reviewer
-        ),
-      },
-      pr: currentPr,
-    });
-
-    mutatingRef.current = true;
-    try {
-      const updated = await withSingleRetry(() =>
-        api.toggleDone(currentRound.prKey, currentRound.roundNumber, nextDone)
-      );
-      // Reconcile: the returned round is authoritative — a `closed` round
-      // surfaces the auto-close and freezes the list.
-      commit({ status: "ready", round: updated, pr: currentPr });
-    } catch (error) {
-      const message = await routeFailure(error);
-      if (message !== null) {
-        // Revert the optimistic flip and show the inline recovery message.
-        // The baseline still holds the pre-flip round, which is exactly
-        // what goes back on screen.
-        setState({ status: "ready", round: currentRound, pr: currentPr });
-        setMutationError(message);
-      }
-    } finally {
-      mutatingRef.current = false;
-    }
-  }
-
-  async function handleEditLabel(label: string): Promise<void> {
-    if (state.status !== "ready" || state.round === null) {
-      return;
-    }
-    const currentRound = state.round;
-    const currentPr = state.pr;
-
-    setMutationError(null);
-    mutatingRef.current = true;
-    try {
-      // The author's typed text is already on screen, so there is no
-      // optimistic write to revert — only the returned round to apply.
-      const renamed = await withSingleRetry(() =>
-        api.editLabel(currentRound.prKey, currentRound.roundNumber, label)
-      );
-      commit({ status: "ready", round: renamed, pr: currentPr });
-    } catch (error) {
-      const message = await routeFailure(error);
-      if (message !== null) {
-        setMutationError(message);
-      }
-    } finally {
-      mutatingRef.current = false;
-    }
-  }
-
-  async function handleCancelRound(): Promise<void> {
-    if (state.status !== "ready" || state.round === null) {
-      return;
-    }
-    const currentRound = state.round;
-
-    setMutationError(null);
-    mutatingRef.current = true;
-    try {
-      const cancelled = await withSingleRetry(() =>
-        api.cancelRound(currentRound.prKey, currentRound.roundNumber)
-      );
-      // The cancelled round is terminal, so settling reads ADO's live PR
-      // and the author lands straight on the compose form for round N+1.
-      commit(await settle(cancelled));
-    } catch (error) {
-      const message = await routeFailure(error);
-      if (message !== null) {
-        setMutationError(message);
-      }
-    } finally {
-      mutatingRef.current = false;
-    }
-  }
-
-  async function handleOpenRound(
-    phase: Phase,
-    label: string | undefined
-  ): Promise<void> {
-    const parts = sdk.prKeyParts();
-    setOpenError(null);
-    setOpening(true);
-    mutatingRef.current = true;
-    try {
-      // The authoritative snapshot is read HERE, at the click — never
-      // reused from the load-time read that gated the button. Only the
-      // round-open itself is retried, so a retry can never re-snapshot a
-      // reviewer list that moved in between.
-      const pr = await ado.getPullRequest(parts);
-      const opened = await withSingleRetry(() =>
-        api.openRound(buildPrKey(parts), {
-          phase,
-          reviewers: pr.reviewers,
-          prTitle: pr.title,
-          prUrl: pr.url,
-          author: { name: pr.createdByName, email: pr.createdByEmail },
-          label,
-        })
-      );
-      commit({ status: "ready", round: opened, pr: null });
-    } catch (error) {
-      // A drift here (someone already opened a round) self-heals; anything
-      // else belongs next to the compose form's own primary action.
-      const message = await routeFailure(error);
-      if (message !== null) {
-        setOpenError(message);
-      }
-    } finally {
-      setOpening(false);
-      mutatingRef.current = false;
-    }
-  }
 
   const viewerAdoId = sdk.getUser().id;
 
@@ -257,7 +106,7 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
           submitting={opening}
           openError={openError}
           onOpenRound={(phase, label) => {
-            void handleOpenRound(phase, label);
+            void openRound(phase, label);
           }}
         />
       );
@@ -287,13 +136,13 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
         round={round}
         viewerAdoId={viewerAdoId}
         onToggleOwn={() => {
-          void handleToggleOwn();
+          void toggleOwn();
         }}
         onEditLabel={(label) => {
-          void handleEditLabel(label);
+          void editLabel(label);
         }}
         onCancelRound={() => {
-          void handleCancelRound();
+          void cancelRound();
         }}
         mutationError={mutationError}
       />

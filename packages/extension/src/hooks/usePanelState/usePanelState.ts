@@ -1,6 +1,12 @@
 import * as React from "react";
-import { buildPrKey, mapApiError, roundFingerprint, ApiError } from "../../lib";
-import type { Round } from "../../lib";
+import {
+  buildPrKey,
+  mapApiError,
+  roundFingerprint,
+  withSingleRetry,
+  ApiError,
+} from "../../lib";
+import type { Phase, Round } from "../../lib";
 import type { SdkClient } from "../../sdk";
 import type { ApiClient } from "../../api";
 import type { AdoClient, AdoPullRequest } from "../../ado";
@@ -179,6 +185,147 @@ export function usePanelState({
     sdk.resize();
   });
 
+  async function toggleOwn(): Promise<void> {
+    if (state.status !== "ready" || state.round === null) {
+      return;
+    }
+    const currentRound = state.round;
+    const currentPr = state.pr;
+    const viewerAdoId = sdk.getUser().id;
+    const me = currentRound.reviewers.find(
+      (reviewer) => reviewer.adoId === viewerAdoId
+    );
+    if (me === undefined) {
+      return;
+    }
+    const nextDone = !me.done;
+
+    // Optimistic: flip the viewer's own row before the PATCH resolves.
+    setMutationError(null);
+    setState({
+      status: "ready",
+      round: {
+        ...currentRound,
+        reviewers: currentRound.reviewers.map((reviewer) =>
+          reviewer.adoId === viewerAdoId
+            ? { ...reviewer, done: nextDone }
+            : reviewer
+        ),
+      },
+      pr: currentPr,
+    });
+
+    mutatingRef.current = true;
+    try {
+      const updated = await withSingleRetry(() =>
+        api.toggleDone(currentRound.prKey, currentRound.roundNumber, nextDone)
+      );
+      // Reconcile: the returned round is authoritative — a `closed` round
+      // surfaces the auto-close and freezes the list.
+      commit({ status: "ready", round: updated, pr: currentPr });
+    } catch (error) {
+      const message = await routeFailure(error);
+      if (message !== null) {
+        // Revert the optimistic flip and show the inline recovery message.
+        // The baseline still holds the pre-flip round, which is exactly
+        // what goes back on screen.
+        setState({ status: "ready", round: currentRound, pr: currentPr });
+        setMutationError(message);
+      }
+    } finally {
+      mutatingRef.current = false;
+    }
+  }
+
+  async function editLabel(label: string): Promise<void> {
+    if (state.status !== "ready" || state.round === null) {
+      return;
+    }
+    const currentRound = state.round;
+    const currentPr = state.pr;
+
+    setMutationError(null);
+    mutatingRef.current = true;
+    try {
+      // The author's typed text is already on screen, so there is no
+      // optimistic write to revert — only the returned round to apply.
+      const renamed = await withSingleRetry(() =>
+        api.editLabel(currentRound.prKey, currentRound.roundNumber, label)
+      );
+      commit({ status: "ready", round: renamed, pr: currentPr });
+    } catch (error) {
+      const message = await routeFailure(error);
+      if (message !== null) {
+        setMutationError(message);
+      }
+    } finally {
+      mutatingRef.current = false;
+    }
+  }
+
+  async function cancelRound(): Promise<void> {
+    if (state.status !== "ready" || state.round === null) {
+      return;
+    }
+    const currentRound = state.round;
+
+    setMutationError(null);
+    mutatingRef.current = true;
+    try {
+      const cancelled = await withSingleRetry(() =>
+        api.cancelRound(currentRound.prKey, currentRound.roundNumber)
+      );
+      // The cancelled round is terminal, so settling reads ADO's live PR
+      // and the author lands straight on the compose form for round N+1.
+      commit(await settle(cancelled));
+    } catch (error) {
+      const message = await routeFailure(error);
+      if (message !== null) {
+        setMutationError(message);
+      }
+    } finally {
+      mutatingRef.current = false;
+    }
+  }
+
+  async function openRound(
+    phase: Phase,
+    label: string | undefined
+  ): Promise<void> {
+    const parts = sdk.prKeyParts();
+    setOpenError(null);
+    setOpening(true);
+    mutatingRef.current = true;
+    try {
+      // The authoritative snapshot is read HERE, at the click — never
+      // reused from the load-time read that gated the button. Only the
+      // round-open itself is retried, so a retry can never re-snapshot a
+      // reviewer list that moved in between.
+      const pr = await ado.getPullRequest(parts);
+      const opened = await withSingleRetry(() =>
+        api.openRound(buildPrKey(parts), {
+          phase,
+          reviewers: pr.reviewers,
+          prTitle: pr.title,
+          prUrl: pr.url,
+          author: { name: pr.createdByName, email: pr.createdByEmail },
+          label,
+        })
+      );
+      commit({ status: "ready", round: opened, pr: null });
+    } catch (error) {
+      // A drift here (someone already opened a round) self-heals; anything
+      // else belongs next to the compose form's own primary action.
+      const message = await routeFailure(error);
+      if (message !== null) {
+        setOpenError(message);
+      }
+    } finally {
+      setOpening(false);
+      mutatingRef.current = false;
+    }
+  }
+
   // The banner's action — the only path that updates a drifted panel.
   async function refresh(): Promise<void> {
     try {
@@ -188,6 +335,9 @@ export function usePanelState({
     }
   }
 
+  // The panel's state, and the five things a viewer can do to it. No
+  // setters, no refs, no internal callbacks: what leaves this hook is what
+  // `App` renders and what it wires to a control.
   return {
     state,
     mutationError,
@@ -195,15 +345,9 @@ export function usePanelState({
     opening,
     drifted,
     refresh,
-    // Consumed by the four mutation handlers, which still live in `App`.
-    // They move here next, and this half of the return goes with them.
-    setState,
-    setMutationError,
-    setOpenError,
-    setOpening,
-    mutatingRef,
-    commit,
-    settle,
-    routeFailure,
+    toggleOwn,
+    editLabel,
+    cancelRound,
+    openRound,
   };
 }
