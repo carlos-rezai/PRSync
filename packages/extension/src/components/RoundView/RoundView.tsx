@@ -9,6 +9,8 @@ import { StatusPill } from "../StatusPill/StatusPill";
 
 // The view of a present round (a `200` from getCurrentRound): header,
 // round label, phase, the reviewer list, and the derived status pill.
+// What this component owns is COMPOSITION — which of its children are
+// live, for whom — rather than any behaviour of its own.
 //
 // Three interactions hang off it, each gated on an OPEN round: the own-row
 // Done checkbox becomes interactive for a reviewer (`canToggleOwn`), and

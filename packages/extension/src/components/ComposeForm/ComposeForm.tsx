@@ -7,8 +7,9 @@ import type { Phase } from "../../lib";
 import { PanelHeader } from "../PanelHeader/PanelHeader";
 
 // What the author sees when no round is open — a `204`, or a terminal
-// (closed/cancelled) round they can follow with the next one. Replaces the
-// read-only view for the author (panel-layout-spec.md rows 2, 3, 6).
+// (closed/cancelled) round they can follow with the next one. It REPLACES
+// the read-only view for the author rather than sitting beside it
+// (panel-layout-spec.md rows 2, 3, 6).
 //
 // The form owns only its two presentation values: the chosen phase
 // (pre-set to `defaultPhase` — the previous round's phase, or `spec`) and
