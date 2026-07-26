@@ -47,10 +47,13 @@ export function mapApiError(
             ? "This round needs an eligible reviewer in ADO before it can open."
             : "That change wasn't valid.",
       };
+    // The App auto-retries a `503` exactly once, so the message a viewer
+    // actually reads is the post-retry one: by then the retry is spent and
+    // the next attempt is theirs to make.
     case 503:
       return {
         recovery: "retry",
-        message: "The service is busy right now. Trying again…",
+        message: "The service is busy right now. Please try again.",
       };
     default:
       return {

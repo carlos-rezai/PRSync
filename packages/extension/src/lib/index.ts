@@ -9,3 +9,4 @@ export * from "./deriveRole/deriveRole";
 export * from "./deriveDefaultLabel/deriveDefaultLabel";
 export * from "./hasEligibleReviewers/hasEligibleReviewers";
 export * from "./mapApiError/mapApiError";
+export * from "./roundFingerprint/roundFingerprint";

@@ -13,3 +13,4 @@ export * from "./EmptyState/EmptyState";
 export * from "./ComposeForm/ComposeForm";
 export * from "./LoadingState/LoadingState";
 export * from "./ErrorState/ErrorState";
+export * from "./RefreshBanner/RefreshBanner";
