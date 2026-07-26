@@ -135,22 +135,12 @@ export function createApiClient(
     },
 
     async toggleDone(prKey, roundNumber, done) {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `${baseUrl}/api/prs/${encodeURIComponent(prKey)}/rounds/${roundNumber}/done`,
-        {
+      return readRound(
+        await send(`${rounds(prKey)}/${roundNumber}/done`, {
           method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ done }),
-        }
+          body: { done },
+        })
       );
-      if (!response.ok) {
-        throw new ApiError(response.status, await readErrorCode(response));
-      }
-      return (await response.json()) as Round;
     },
 
     async openRound(prKey, request) {
@@ -175,22 +165,12 @@ export function createApiClient(
     },
 
     async editLabel(prKey, roundNumber, label) {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `${baseUrl}/api/prs/${encodeURIComponent(prKey)}/rounds/${roundNumber}`,
-        {
+      return readRound(
+        await send(`${rounds(prKey)}/${roundNumber}`, {
           method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ label }),
-        }
+          body: { label },
+        })
       );
-      if (!response.ok) {
-        throw new ApiError(response.status, await readErrorCode(response));
-      }
-      return (await response.json()) as Round;
     },
 
     async cancelRound(prKey, roundNumber) {
