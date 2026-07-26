@@ -49,3 +49,40 @@ describe("mapApiError — {status, code} → recovery guidance", () => {
     expect(guidance.message).toBeTruthy();
   });
 });
+
+// Issue #12 / PRD #7 Phase 5 completes the table. Phases 1–4 wired the
+// entries each of their own mutations could hit; these fill the remaining
+// {status, code} pairs so every branch is pinned, and tighten the `503`
+// wording: the App auto-retries a `503` ONCE, so the message a viewer
+// actually reads is the post-retry one and must tell them to try again
+// themselves — not promise a retry that has already been spent.
+
+describe("mapApiError — the rest of the table", () => {
+  it("maps a 401 with no service code to a session-expired reload", () => {
+    // An expired ADO bearer token has no PRSync error body to parse.
+    const guidance = mapApiError(401, null);
+    expect(guidance.recovery).toBe("reload");
+    expect(guidance.message).toMatch(/session expired/i);
+    expect(guidance.message).toMatch(/refresh/i);
+  });
+
+  it("maps a 422 with an unrecognized code to a generic inline message", () => {
+    const guidance = mapApiError(422, "SOME_FUTURE_VALIDATION_CODE");
+    expect(guidance.recovery).toBe("inline");
+    expect(guidance.message).toBeTruthy();
+    // Only INSUFFICIENT_REVIEWERS earns the reviewer-specific wording.
+    expect(guidance.message).not.toMatch(/reviewer/i);
+  });
+
+  it("tells the viewer to try again once the 503 retry is spent", () => {
+    const guidance = mapApiError(503, "CONCURRENCY_EXHAUSTED");
+    expect(guidance.recovery).toBe("retry");
+    expect(guidance.message).toMatch(/try again/i);
+  });
+
+  it("falls back to inline for an unmapped status carrying a code", () => {
+    const guidance = mapApiError(404, "ROUND_NOT_FOUND");
+    expect(guidance.recovery).toBe("inline");
+    expect(guidance.message).toBeTruthy();
+  });
+});

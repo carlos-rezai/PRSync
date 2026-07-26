@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   waitFor,
@@ -1283,5 +1284,374 @@ describe("App — Phase 4 cancel round", () => {
     expect(
       await screen.findByRole("button", { name: /ready for review/i })
     ).toBeInTheDocument();
+  });
+});
+
+// --- Phase 5: Polling + refresh banner --------------------------------
+//
+// Review is live team activity, so the round a viewer is staring at goes
+// stale under them. A ~20s poll re-reads the current round and compares a
+// client `roundFingerprint` against the viewer's BASELINE — the last state
+// they saw or acted on. A mismatch is Drift and raises a refresh banner the
+// viewer must CLICK; the panel never silently live-patches state under a
+// cursor. The viewer's own mutations reset the baseline, so their own
+// changes can never raise the banner at them.
+//
+// Polling pauses on two conditions: while a mutation of the viewer's is in
+// flight (a poll must not clobber an optimistic flip) and while the tab is
+// hidden (a backgrounded panel wastes requests).
+//
+// This slice also completes the error surface: a `503 CONCURRENCY_EXHAUSTED`
+// is auto-retried EXACTLY once before the viewer is told to try again, and a
+// `401` says the session expired.
+//
+// These tests run on fake timers where they advance the poll, and assert
+// only through rendered output and the injected `api` fake — never internal
+// state. Issue #12 / PRD #7 Phase 5. Terminology:
+// docs/ubiquitous-language.md.
+
+const POLL_MS = 20_000;
+
+/** Lets pending promise chains settle and their React updates land. */
+async function flush(): Promise<void> {
+  await act(async () => {
+    for (let i = 0; i < 8; i += 1) {
+      await Promise.resolve();
+    }
+  });
+}
+
+/** Advances whole poll intervals, then settles what they kicked off. */
+async function tickPoll(intervals = 1): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(POLL_MS * intervals);
+  });
+  await flush();
+}
+
+/** Drives the Page Visibility API the way a real tab switch would. */
+function setTabVisibility(state: "visible" | "hidden"): void {
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    value: state === "hidden",
+  });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: state,
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+/** The refresh banner's action, or `null` while the panel is in sync. */
+function refreshBanner(): HTMLElement | null {
+  return screen.queryByRole("button", { name: /refresh/i });
+}
+
+/** A round closed by quorum — the state a second Done lands the panel in. */
+function closedRound(): Round {
+  return makeRound({
+    status: "closed",
+    closedAt: "2026-07-25T02:00:00.000Z",
+    reviewers: [
+      makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
+      makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
+    ],
+  });
+}
+
+describe("App — Phase 5 polling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    setTabVisibility("visible");
+  });
+
+  it("re-reads the current round every ~20 seconds", async () => {
+    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound }),
+      makeAuthorAdo()
+    );
+    await flush();
+
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+    await tickPoll();
+    expect(getCurrentRound).toHaveBeenCalledTimes(2);
+    await tickPoll();
+    expect(getCurrentRound).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops polling while the tab is hidden and resumes when it returns", async () => {
+    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound }),
+      makeAuthorAdo()
+    );
+    await flush();
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+
+    // A backgrounded panel spends nothing, however long it sits there.
+    setTabVisibility("hidden");
+    await tickPoll(3);
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+
+    setTabVisibility("visible");
+    await tickPoll();
+    expect(getCurrentRound).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops polling while the viewer's own mutation is in flight", async () => {
+    // A deferred toggle holds the mutation open across a poll interval: a
+    // poll landing here would clobber the optimistic flip.
+    let resolveToggle: (round: Round) => void = () => {};
+    const toggleDone = vi.fn().mockReturnValue(
+      new Promise<Round>((resolve) => {
+        resolveToggle = resolve;
+      })
+    );
+    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound, toggleDone }),
+      makeAuthorAdo()
+    );
+    await flush();
+
+    fireEvent.click(checkbox(/Rev One/i));
+    await tickPoll(2);
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+
+    // Once the PATCH settles, polling picks up again.
+    resolveToggle(closedRound());
+    await flush();
+    await tickPoll();
+    expect(getCurrentRound).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("App — Phase 5 drift + refresh banner", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    setTabVisibility("visible");
+  });
+
+  it("stays quiet when a poll finds the round unchanged", async () => {
+    // Every poll yields a fresh object; equal state must raise nothing.
+    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound }),
+      makeAuthorAdo()
+    );
+    await flush();
+
+    await tickPoll(2);
+    expect(refreshBanner()).toBeNull();
+    expect(
+      screen.getByText("Round 2 — Implementation Review")
+    ).toBeInTheDocument();
+  });
+
+  it("raises the refresh banner on someone else's change without patching the panel", async () => {
+    // The author renamed the round from their own panel while the viewer
+    // was reading it.
+    const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementationOnce(async () => makeRound())
+      .mockImplementation(async () => drifted);
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound }),
+      makeAuthorAdo()
+    );
+    await flush();
+
+    await tickPoll();
+
+    expect(refreshBanner()).not.toBeNull();
+    // The panel NEVER silently live-patches: the viewer still sees exactly
+    // the state they were reading until they choose to refresh.
+    expect(
+      screen.getByText("Round 2 — Implementation Review")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Round 2 — Renamed by the author")
+    ).not.toBeInTheDocument();
+  });
+
+  it("re-fetches, re-renders, and dismisses itself when the banner is clicked", async () => {
+    const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementationOnce(async () => makeRound())
+      .mockImplementation(async () => drifted);
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound }),
+      makeAuthorAdo()
+    );
+    await flush();
+    await tickPoll();
+
+    const banner = refreshBanner();
+    expect(banner).not.toBeNull();
+    const callsBeforeClick = getCurrentRound.mock.calls.length;
+    fireEvent.click(banner as HTMLElement);
+    await flush();
+
+    // Clicking is the ONLY path that updates a drifted panel, and it reads
+    // the true state afresh rather than applying the polled copy.
+    expect(getCurrentRound.mock.calls.length).toBeGreaterThan(callsBeforeClick);
+    expect(
+      screen.getByText("Round 2 — Renamed by the author")
+    ).toBeInTheDocument();
+    expect(refreshBanner()).toBeNull();
+  });
+
+  it("resets the baseline on refresh, so the same state never re-raises the banner", async () => {
+    const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementationOnce(async () => makeRound())
+      .mockImplementation(async () => drifted);
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound }),
+      makeAuthorAdo()
+    );
+    await flush();
+    await tickPoll();
+    const banner = refreshBanner();
+    expect(banner).not.toBeNull();
+    fireEvent.click(banner as HTMLElement);
+    await flush();
+
+    // The refreshed state IS the baseline now — polls over it are silent.
+    await tickPoll(2);
+    expect(refreshBanner()).toBeNull();
+  });
+
+  it("never raises the banner at the viewer for their own Done toggle", async () => {
+    // The toggle's own reconcile is the newest state the viewer has seen,
+    // so the poll that follows must find nothing to report.
+    const closed = closedRound();
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementationOnce(async () => makeRound())
+      .mockImplementation(async () => closed);
+    const toggleDone = vi.fn().mockImplementation(async () => closed);
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound, toggleDone }),
+      makeAuthorAdo()
+    );
+    await flush();
+
+    fireEvent.click(checkbox(/Rev One/i));
+    await flush();
+    expect(screen.getByText(/all reviewed/i)).toBeInTheDocument();
+
+    await tickPoll(2);
+    expect(refreshBanner()).toBeNull();
+  });
+
+  it("never raises the banner after a drift-heal re-fetch", async () => {
+    // A 409 already reconciled the client to the true state, so that state
+    // is the viewer's baseline — the next poll has nothing new to say.
+    const healed = closedRound();
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementationOnce(async () => makeRound())
+      .mockImplementation(async () => healed);
+    const toggleDone = vi
+      .fn()
+      .mockRejectedValue(new ApiError(409, "ROUND_NOT_OPEN"));
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApiP4({ getCurrentRound, toggleDone }),
+      makeAuthorAdo()
+    );
+    await flush();
+
+    fireEvent.click(checkbox(/Rev One/i));
+    await flush();
+    expect(screen.getByText(/all reviewed/i)).toBeInTheDocument();
+
+    await tickPoll(2);
+    expect(refreshBanner()).toBeNull();
+  });
+});
+
+describe("App — Phase 5 error surface", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("auto-retries a 503 once and surfaces nothing when the retry succeeds", async () => {
+    const closed = closedRound();
+    const toggleDone = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(503, "CONCURRENCY_EXHAUSTED"))
+      .mockResolvedValue(closed);
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      toggleDone,
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAuthorAdo());
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
+
+    // Momentary write contention is invisible to the viewer.
+    await waitFor(() => expect(toggleDone).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/all reviewed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/busy|try again/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces 'try again' once the single 503 retry is spent, reverting the flip", async () => {
+    const toggleDone = vi
+      .fn()
+      .mockRejectedValue(new ApiError(503, "CONCURRENCY_EXHAUSTED"));
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      toggleDone,
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAuthorAdo());
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
+
+    expect(await screen.findByText(/try again/i)).toBeInTheDocument();
+    // EXACTLY one retry — the panel does not hammer a contended write.
+    expect(toggleDone).toHaveBeenCalledTimes(2);
+    expect(checkbox(/Rev One/i)).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("tells the viewer their session expired on a 401, without retrying", async () => {
+    // GREEN BEFORE THE IMPLEMENTATION — Phase 2's `routeFailure` already
+    // surfaces any non-refetch guidance inline. Kept as the guard that the
+    // 401 wording survives, and that the Phase 5 retry wrapper never
+    // re-sends a request an expired token can only fail again.
+    const toggleDone = vi.fn().mockRejectedValue(new ApiError(401, null));
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      toggleDone,
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAuthorAdo());
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
+
+    expect(await screen.findByText(/session expired/i)).toBeInTheDocument();
+    expect(toggleDone).toHaveBeenCalledTimes(1);
   });
 });
