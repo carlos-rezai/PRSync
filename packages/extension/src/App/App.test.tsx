@@ -1,26 +1,26 @@
-/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unnecessary-type-assertion --
-   Every finding under these four rules in this file comes from one cause:
-   the partial client fakes below, and the type assertions that let them
-   stand in for complete interfaces. Group 1 of issue #14 replaces them
-   with a shared typed fixture module whose fakes implement their
-   interfaces fully, which deletes the findings rather than papering over
-   them — so fixing them here would be fixing them twice. This suppression
-   is removed in the commit that repoints this file at the fixtures. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   act,
-  render,
   screen,
   waitFor,
   fireEvent,
   within,
 } from "@testing-library/react";
-import { App } from "./App";
-import type { SdkClient } from "../sdk";
-import type { ApiClient } from "../api";
 import { ApiError } from "../api";
-import type { AdoClient } from "../ado";
-import type { Round, RoundReviewer } from "../lib";
+import type { Round } from "../lib";
+import {
+  AUTHOR_ID,
+  CLOSED_AT,
+  PR_KEY,
+  REVIEWER_ONE_ID,
+  STRANGER_ID,
+  makeAdoPullRequest,
+  makeAdoReviewer,
+  makeCancelledRound,
+  makeClosedRound,
+  makeRound,
+} from "../test/fixtures/fixtures";
+import { makeAdo, makeApi, makeSdk, renderApp } from "../test/fixtures/fakes";
 
 // Behavioural tests over the App container's load state machine, driven
 // entirely through injected `sdk` / `api` / `ado` fakes (the PRD's
@@ -34,90 +34,6 @@ import type { Round, RoundReviewer } from "../lib";
 //                           bystander
 // Terminology: docs/ubiquitous-language.md.
 
-const PROJECT_ID = "6f5e4d3c-2b1a-0908-1716-2524232221f0";
-const REPO_ID = "aabbccdd-eeff-0011-2233-445566778899";
-
-const AUTHOR_ID = "author-guid-0000-0000-0000-000000000001";
-const REVIEWER_ONE_ID = "reviewer1-guid-0000-0000-0000-0000000002";
-const REVIEWER_TWO_ID = "reviewer2-guid-0000-0000-0000-0000000003";
-const STRANGER_ID = "stranger-guid-0000-0000-0000-000000000004";
-
-function makeReviewer(
-  adoId: string,
-  displayName: string,
-  done: boolean
-): RoundReviewer {
-  return {
-    adoId,
-    email: `${displayName.toLowerCase().replace(/\s+/g, "")}@example.com`,
-    displayName,
-    isRequired: true,
-    done,
-    doneAt: done ? "2026-07-25T01:00:00.000Z" : undefined,
-    teamsIdOverride: null,
-  };
-}
-
-function makeRound(overrides: Partial<Round> = {}): Round {
-  return {
-    prKey: `${PROJECT_ID}:${REPO_ID}:42`,
-    roundNumber: 2,
-    phase: "implementation",
-    label: "Round 2 — Implementation Review",
-    status: "open",
-    quorum: 2,
-    reviewers: [
-      makeReviewer(REVIEWER_ONE_ID, "Rev One", false),
-      makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-    ],
-    prTitle: "Add the widget",
-    prUrl: "https://example.com/pr/42",
-    authorAdoId: AUTHOR_ID,
-    authorName: "The Author",
-    authorEmail: "author@example.com",
-    openedAt: "2026-07-25T00:00:00.000Z",
-    schemaVersion: 1,
-    ...overrides,
-  };
-}
-
-// --- injected client fakes -------------------------------------------
-
-function makeSdk(viewerAdoId: string): SdkClient {
-  // Cast because Phase 6 (issue #13) adds `resize` to the seam — the host's
-  // "size the frame to my content" call. Drop the cast once `SdkClient`
-  // declares it.
-  return {
-    getUser: () => ({ id: viewerAdoId, displayName: "Viewer" }),
-    prKeyParts: () => ({
-      projectId: PROJECT_ID,
-      repositoryId: REPO_ID,
-      pullRequestId: 42,
-    }),
-    getAccessToken: vi.fn().mockResolvedValue("fake-token"),
-    resize: vi.fn(),
-  } as SdkClient;
-}
-
-function makeApi(getCurrentRound: ApiClient["getCurrentRound"]): ApiClient {
-  return { getCurrentRound } as ApiClient;
-}
-
-function makeAdo(createdByAdoId: string): AdoClient {
-  return {
-    getPullRequest: vi.fn().mockResolvedValue({
-      createdByAdoId,
-      reviewers: [],
-      title: "Add the widget",
-      url: "https://example.com/pr/42",
-    }),
-  } as unknown as AdoClient;
-}
-
-function renderApp(sdk: SdkClient, api: ApiClient, ado: AdoClient) {
-  return render(<App sdk={sdk} api={api} ado={ado} />);
-}
-
 describe("App — Phase 1 read-only load paths", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -126,15 +42,17 @@ describe("App — Phase 1 read-only load paths", () => {
   it("shows a spinner while the initial getCurrentRound is in flight", () => {
     // A promise that never resolves keeps the panel in its loading state.
     const pending = new Promise<Round | null>(() => {});
-    const api = makeApi(vi.fn().mockReturnValue(pending));
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    const api = makeApi({ getCurrentRound: vi.fn().mockReturnValue(pending) });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
   it("renders the current round from a single 200, with NO ADO REST call", async () => {
-    const api = makeApi(vi.fn().mockResolvedValue(makeRound()));
-    const ado = makeAdo(AUTHOR_ID);
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+    });
+    const ado = makeAdo();
     renderApp(makeSdk(REVIEWER_ONE_ID), api, ado);
 
     // The round label and both reviewer personas render from the snapshot.
@@ -151,30 +69,28 @@ describe("App — Phase 1 read-only load paths", () => {
 
   it("derives the status pill 'N of M reviewed' while the round is open", async () => {
     // One of two reviewers is done → "1 of 2 reviewed".
-    const api = makeApi(vi.fn().mockResolvedValue(makeRound()));
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     expect(await screen.findByText(/1 of 2 reviewed/i)).toBeInTheDocument();
   });
 
   it("derives the status pill 'All reviewed' once the round is closed", async () => {
-    const closed = makeRound({
-      status: "closed",
-      closedAt: "2026-07-25T02:00:00.000Z",
-      reviewers: [
-        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-      ],
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockResolvedValue(makeClosedRound()),
     });
-    const api = makeApi(vi.fn().mockResolvedValue(closed));
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     expect(await screen.findByText(/all reviewed/i)).toBeInTheDocument();
   });
 
   it("renders a Bystander a fully read-only view of the open round (not ZeroData)", async () => {
-    const api = makeApi(vi.fn().mockResolvedValue(makeRound()));
-    renderApp(makeSdk(STRANGER_ID), api, makeAdo(AUTHOR_ID));
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+    });
+    renderApp(makeSdk(STRANGER_ID), api, makeAdo());
 
     // The bystander still sees the round content, read-only.
     expect(await screen.findByText("Rev One")).toBeInTheDocument();
@@ -182,17 +98,17 @@ describe("App — Phase 1 read-only load paths", () => {
   });
 
   it("renders a ZeroData empty state for a round with no reviewers", async () => {
-    const api = makeApi(
-      vi.fn().mockResolvedValue(makeRound({ reviewers: [] }))
-    );
-    renderApp(makeSdk(AUTHOR_ID), api, makeAdo(AUTHOR_ID));
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound({ reviewers: [] })),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     expect(await screen.findByText(/no reviewers/i)).toBeInTheDocument();
   });
 
   it("on 204, reads ADO createdBy once and shows the author a compose placeholder", async () => {
-    const api = makeApi(vi.fn().mockResolvedValue(null)); // 204 → null
-    const ado = makeAdo(AUTHOR_ID); // viewer created the PR
+    const api = makeApi({ getCurrentRound: vi.fn().mockResolvedValue(null) });
+    const ado = makeAdo(); // the viewer created the PR
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     expect(await screen.findByText(/no open round/i)).toBeInTheDocument();
@@ -202,8 +118,8 @@ describe("App — Phase 1 read-only load paths", () => {
   });
 
   it("on 204, shows a non-author the 'No round yet' ZeroData empty state", async () => {
-    const api = makeApi(vi.fn().mockResolvedValue(null)); // 204 → null
-    const ado = makeAdo(AUTHOR_ID); // PR created by someone else
+    const api = makeApi({ getCurrentRound: vi.fn().mockResolvedValue(null) });
+    const ado = makeAdo(); // the PR was created by someone else
     renderApp(makeSdk(STRANGER_ID), api, ado);
 
     expect(await screen.findByText(/no round yet/i)).toBeInTheDocument();
@@ -211,8 +127,10 @@ describe("App — Phase 1 read-only load paths", () => {
   });
 
   it("renders an error state when the initial load fails", async () => {
-    const api = makeApi(vi.fn().mockRejectedValue(new Error("network down")));
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockRejectedValue(new Error("network down")),
+    });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     expect(await screen.findByText(/couldn't load/i)).toBeInTheDocument();
   });
@@ -231,21 +149,6 @@ describe("App — Phase 1 read-only load paths", () => {
 // component internals. Issue #9 / PRD #7 "Done toggle". Terminology:
 // docs/ubiquitous-language.md.
 
-// The canonical PR key the panel builds from the contribution context —
-// the exact {guid}:{guid}:{int} string toggleDone must be called with.
-const PR_KEY = `${PROJECT_ID}:${REPO_ID}:42`;
-
-function makeApiP2(opts: {
-  getCurrentRound: ApiClient["getCurrentRound"];
-  toggleDone: (
-    prKey: string,
-    roundNumber: number,
-    done: boolean
-  ) => Promise<Round>;
-}): ApiClient {
-  return opts as unknown as ApiClient;
-}
-
 // The Done checkbox (azure-devops-ui) renders role="checkbox" with an
 // aria-label carrying the reviewer's display name; these read its state.
 function checkbox(name: RegExp): HTMLElement {
@@ -258,11 +161,11 @@ describe("App — Phase 2 Done toggle", () => {
   });
 
   it("makes only the reviewer's own row interactive while the round is open", async () => {
-    const api = makeApiP2({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       toggleDone: vi.fn(),
     });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     // The viewer's own row is interactive; the other reviewer's is not.
     const own = await screen.findByRole("checkbox", { name: /Rev One/i });
@@ -276,11 +179,11 @@ describe("App — Phase 2 Done toggle", () => {
 
   it("shows the author and the bystander every Done checkbox read-only", async () => {
     for (const viewer of [AUTHOR_ID, STRANGER_ID]) {
-      const api = makeApiP2({
+      const api = makeApi({
         getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
         toggleDone: vi.fn(),
       });
-      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo(AUTHOR_ID));
+      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo());
 
       const one = await screen.findByRole("checkbox", { name: /Rev One/i });
       expect(one).toHaveAttribute("aria-disabled", "true");
@@ -298,19 +201,12 @@ describe("App — Phase 2 Done toggle", () => {
         resolveToggle = resolve;
       })
     );
-    const closed = makeRound({
-      status: "closed",
-      closedAt: "2026-07-25T02:00:00.000Z",
-      reviewers: [
-        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-      ],
-    });
-    const api = makeApiP2({
+    const closed = makeClosedRound();
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       toggleDone,
     });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     const own = await screen.findByRole("checkbox", { name: /Rev One/i });
     expect(own).toHaveAttribute("aria-checked", "false");
@@ -332,8 +228,8 @@ describe("App — Phase 2 Done toggle", () => {
   it("reverts the optimistic flip and shows an inline message when the toggle fails", async () => {
     const getCurrentRound = vi.fn().mockResolvedValue(makeRound());
     const toggleDone = vi.fn().mockRejectedValue(new ApiError(500, null));
-    const api = makeApiP2({ getCurrentRound, toggleDone });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    const api = makeApi({ getCurrentRound, toggleDone });
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     const own = await screen.findByRole("checkbox", { name: /Rev One/i });
     fireEvent.click(own);
@@ -354,20 +250,12 @@ describe("App — Phase 2 Done toggle", () => {
   });
 
   it("freezes the reviewer's own checkbox once the round is closed", async () => {
-    const closed = makeRound({
-      status: "closed",
-      closedAt: "2026-07-25T02:00:00.000Z",
-      reviewers: [
-        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-      ],
-    });
     const toggleDone = vi.fn();
-    const api = makeApiP2({
-      getCurrentRound: vi.fn().mockResolvedValue(closed),
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockResolvedValue(makeClosedRound()),
       toggleDone,
     });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     const own = await screen.findByRole("checkbox", { name: /Rev One/i });
     expect(own).toHaveAttribute("aria-disabled", "true");
@@ -384,21 +272,14 @@ describe("App — Phase 2 Done toggle", () => {
     async (status, code) => {
       const open = makeRound();
       // The true state the re-fetch discovers: the round already closed.
-      const healed = makeRound({
-        status: "closed",
-        closedAt: "2026-07-25T02:00:00.000Z",
-        reviewers: [
-          makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-          makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-        ],
-      });
+      const healed = makeClosedRound();
       const getCurrentRound = vi
         .fn()
         .mockResolvedValueOnce(open) // initial load
         .mockResolvedValueOnce(healed); // drift re-fetch
       const toggleDone = vi.fn().mockRejectedValue(new ApiError(status, code));
-      const api = makeApiP2({ getCurrentRound, toggleDone });
-      renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo(AUTHOR_ID));
+      const api = makeApi({ getCurrentRound, toggleDone });
+      renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
       const own = await screen.findByRole("checkbox", { name: /Rev One/i });
       fireEvent.click(own);
@@ -436,72 +317,6 @@ describe("App — Phase 2 Done toggle", () => {
 // rendered controls — never component internals. Terminology:
 // docs/ubiquitous-language.md.
 
-// A live ADO reviewer as the `ado` GitClient seam yields it — the shape
-// that maps to Feature 1's IncomingReviewer (adoId/email/displayName/
-// isRequired/isContainer). Containers and the author are dropped SERVER-
-// side (snapshotReviewers), so the panel sends the raw list unfiltered.
-interface AdoReviewerLite {
-  adoId: string;
-  displayName: string;
-  email: string;
-  isRequired: boolean;
-  isContainer: boolean;
-}
-
-function adoReviewer(
-  adoId: string,
-  displayName: string,
-  opts: { isRequired?: boolean; isContainer?: boolean } = {}
-): AdoReviewerLite {
-  return {
-    adoId,
-    displayName,
-    email: `${displayName.toLowerCase().replace(/\s+/g, "")}@example.com`,
-    isRequired: opts.isRequired ?? true,
-    isContainer: opts.isContainer ?? false,
-  };
-}
-
-// An `ado` fake whose getPullRequest yields a full live PR — createdBy
-// identity (id + name + email, the author's display/Teams data the
-// openRound body carries) plus the reviewer snapshot, title, and url.
-function makeAdoP3(opts: {
-  createdByAdoId: string;
-  reviewers: AdoReviewerLite[];
-  title?: string;
-  url?: string;
-  createdByName?: string;
-  createdByEmail?: string;
-}): AdoClient {
-  return {
-    getPullRequest: vi.fn().mockResolvedValue({
-      createdByAdoId: opts.createdByAdoId,
-      createdByName: opts.createdByName ?? "The Author",
-      createdByEmail: opts.createdByEmail ?? "author@example.com",
-      reviewers: opts.reviewers,
-      title: opts.title ?? "Add the widget",
-      url: opts.url ?? "https://example.com/pr/42",
-    }),
-  } as unknown as AdoClient;
-}
-
-function makeApiP3(opts: {
-  getCurrentRound: ApiClient["getCurrentRound"];
-  openRound: (
-    prKey: string,
-    request: {
-      phase: Round["phase"];
-      reviewers: AdoReviewerLite[];
-      prTitle: string;
-      prUrl: string;
-      author: { name: string; email: string };
-      label?: string;
-    }
-  ) => Promise<Round>;
-}): ApiClient {
-  return opts as unknown as ApiClient;
-}
-
 function readyButton(): HTMLElement {
   return screen.getByRole("button", { name: /ready for review/i });
 }
@@ -512,15 +327,11 @@ describe("App — Phase 3 Ready for review", () => {
   });
 
   it("shows the author the compose form (phase toggle + Ready) on a 204", async () => {
-    const openRound = vi.fn();
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null), // 204 → no round
-      openRound,
+      openRound: vi.fn(),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID, // viewer created the PR
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo(); // the viewer created the PR
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     // Both phase options and the primary action are present and enabled.
@@ -537,14 +348,11 @@ describe("App — Phase 3 Ready for review", () => {
   });
 
   it("shows no Ready for review button to a non-author on a 204", async () => {
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
       openRound: vi.fn(),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID, // PR created by someone else
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo(); // the PR was created by someone else
     renderApp(makeSdk(STRANGER_ID), api, ado);
 
     expect(await screen.findByText(/no round yet/i)).toBeInTheDocument();
@@ -554,18 +362,11 @@ describe("App — Phase 3 Ready for review", () => {
   });
 
   it("shows no Ready for review button to the author while a round is open", async () => {
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()), // open round
       openRound: vi.fn(),
     });
-    renderApp(
-      makeSdk(AUTHOR_ID),
-      api,
-      makeAdoP3({
-        createdByAdoId: AUTHOR_ID,
-        reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-      })
-    );
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     // The open round renders (for the author the label is the Phase 4
     // edit field); a second round can't be opened concurrently.
@@ -577,14 +378,16 @@ describe("App — Phase 3 Ready for review", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("reads ADO live at the click, THEN calls openRound with that snapshot", async () => {
-    const openRound = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP3({
+  it("reads ADO live at the click, THEN calls api.openRound with that snapshot", async () => {
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
-      openRound,
+      openRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const rev = adoReviewer(REVIEWER_ONE_ID, "Rev One");
-    const ado = makeAdoP3({ createdByAdoId: AUTHOR_ID, reviewers: [rev] });
+    const rev = makeAdoReviewer({
+      adoId: REVIEWER_ONE_ID,
+      displayName: "Rev One",
+    });
+    const ado = makeAdo(makeAdoPullRequest({ reviewers: [rev] }));
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     fireEvent.click(
@@ -593,12 +396,12 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
 
     // The click read ADO afresh (in addition to the compose-gate read),
-    // and openRound got the live reviewers + title + url + author.
+    // and api.openRound got the live reviewers + title + url + author.
     expect(ado.getPullRequest).toHaveBeenCalledTimes(2);
-    expect(openRound).toHaveBeenCalledWith(
+    expect(api.openRound).toHaveBeenCalledWith(
       PR_KEY,
       expect.objectContaining({
         phase: "spec",
@@ -609,24 +412,20 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    // Sequencing: the fresh ADO read precedes the openRound call.
-    const lastAdoRead = (
-      ado.getPullRequest as ReturnType<typeof vi.fn>
-    ).mock.invocationCallOrder.at(-1) as number;
-    const openCall = openRound.mock.invocationCallOrder[0] as number;
+    // Sequencing: the fresh ADO read precedes the api.openRound call.
+    const lastAdoRead = ado.getPullRequest.mock.invocationCallOrder.at(
+      -1
+    ) as number;
+    const openCall = api.openRound.mock.invocationCallOrder[0] as number;
     expect(lastAdoRead).toBeLessThan(openCall);
   });
 
   it("omits the label when the author leaves it untouched", async () => {
-    const openRound = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
-      openRound,
+      openRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo();
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     fireEvent.click(
@@ -635,21 +434,17 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
     // Untouched → label omitted so the API generates it canonically.
-    expect(openRound.mock.calls[0]?.[1].label).toBeUndefined();
+    expect(api.openRound.mock.calls[0]?.[1].label).toBeUndefined();
   });
 
   it("sends the exact label text when the author edits it", async () => {
-    const openRound = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
-      openRound,
+      openRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo();
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     await screen.findByRole("button", { name: /ready for review/i });
@@ -658,20 +453,18 @@ describe("App — Phase 3 Ready for review", () => {
 
     fireEvent.click(readyButton());
 
-    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0]?.[1].label).toBe("Round 1 — Please look");
+    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
+    expect(api.openRound.mock.calls[0]?.[1].label).toBe(
+      "Round 1 — Please look"
+    );
   });
 
   it("defaults the phase to spec on a 204 (no previous round)", async () => {
-    const openRound = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
-      openRound,
+      openRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo();
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     fireEvent.click(
@@ -680,31 +473,18 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0]?.[1].phase).toBe("spec");
+    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
+    expect(api.openRound.mock.calls[0]?.[1].phase).toBe("spec");
   });
 
   it("defaults the phase to the previous round's phase on a closed round", async () => {
     // The author views a terminal (closed) round → compose the NEXT round.
-    const closed = makeRound({
-      roundNumber: 2,
-      phase: "implementation",
-      status: "closed",
-      closedAt: "2026-07-25T02:00:00.000Z",
-      reviewers: [
-        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-      ],
-    });
-    const openRound = vi.fn().mockResolvedValue(makeRound({ roundNumber: 3 }));
-    const api = makeApiP3({
+    const closed = makeClosedRound();
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(closed),
-      openRound,
+      openRound: vi.fn().mockResolvedValue(makeRound({ roundNumber: 3 })),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo();
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     // The compose form replaces the read-only closed view for the author,
@@ -715,20 +495,16 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0]?.[1].phase).toBe("implementation");
+    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
+    expect(api.openRound.mock.calls[0]?.[1].phase).toBe("implementation");
   });
 
   it("flips the phase sent when the author toggles to Implementation Review", async () => {
-    const openRound = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null), // 204 → default spec
-      openRound,
+      openRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo();
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     await screen.findByRole("button", { name: /ready for review/i });
@@ -737,24 +513,28 @@ describe("App — Phase 3 Ready for review", () => {
     );
     fireEvent.click(readyButton());
 
-    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
-    expect(openRound.mock.calls[0]?.[1].phase).toBe("implementation");
+    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
+    expect(api.openRound.mock.calls[0]?.[1].phase).toBe("implementation");
   });
 
   it("disables Ready with a hint when the snapshot has zero eligible reviewers", async () => {
-    const openRound = vi.fn();
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
-      openRound,
+      openRound: vi.fn(),
     });
     // Only a container (team) and the author himself — no eligible individual.
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [
-        adoReviewer("team-guid", "The Team", { isContainer: true }),
-        adoReviewer(AUTHOR_ID, "The Author"),
-      ],
-    });
+    const ado = makeAdo(
+      makeAdoPullRequest({
+        reviewers: [
+          makeAdoReviewer({
+            adoId: "team-guid",
+            displayName: "The Team",
+            isContainer: true,
+          }),
+          makeAdoReviewer({ adoId: AUTHOR_ID, displayName: "The Author" }),
+        ],
+      })
+    );
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     const ready = await screen.findByRole("button", {
@@ -765,23 +545,19 @@ describe("App — Phase 3 Ready for review", () => {
 
     // A disabled primary action can never fire the open call.
     fireEvent.click(ready);
-    expect(openRound).not.toHaveBeenCalled();
+    expect(api.openRound).not.toHaveBeenCalled();
   });
 
   it("maps a 422 INSUFFICIENT_REVIEWERS to an inline validation message", async () => {
-    const openRound = vi
-      .fn()
-      .mockRejectedValue(new ApiError(422, "INSUFFICIENT_REVIEWERS"));
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
-      openRound,
+      openRound: vi
+        .fn()
+        .mockRejectedValue(new ApiError(422, "INSUFFICIENT_REVIEWERS")),
     });
     // Client pre-check passes (one eligible reviewer), so the button is
     // enabled — the server's 422 is the authoritative backstop.
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo();
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     fireEvent.click(
@@ -790,21 +566,17 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    await waitFor(() => expect(openRound).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
     expect(await screen.findByText(/eligible reviewer/i)).toBeInTheDocument();
   });
 
   it("reconciles to the returned open round after a successful openRound", async () => {
     const opened = makeRound(); // open, "1 of 2 reviewed"
-    const openRound = vi.fn().mockResolvedValue(opened);
-    const api = makeApiP3({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
-      openRound,
+      openRound: vi.fn().mockResolvedValue(opened),
     });
-    const ado = makeAdoP3({
-      createdByAdoId: AUTHOR_ID,
-      reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-    });
+    const ado = makeAdo();
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
     fireEvent.click(
@@ -850,39 +622,6 @@ describe("App — Phase 3 Ready for review", () => {
 //
 // Issue #11 / PRD #7 Phase 4. Terminology: docs/ubiquitous-language.md.
 
-function makeApiP4(opts: {
-  getCurrentRound: ApiClient["getCurrentRound"];
-  editLabel?: (
-    prKey: string,
-    roundNumber: number,
-    label: string
-  ) => Promise<Round>;
-  cancelRound?: (prKey: string, roundNumber: number) => Promise<Round>;
-  toggleDone?: (
-    prKey: string,
-    roundNumber: number,
-    done: boolean
-  ) => Promise<Round>;
-  openRound?: (prKey: string, request: unknown) => Promise<Round>;
-}): ApiClient {
-  return {
-    editLabel: vi.fn(),
-    cancelRound: vi.fn(),
-    toggleDone: vi.fn(),
-    openRound: vi.fn(),
-    ...opts,
-  } as unknown as ApiClient;
-}
-
-// The author's own ADO fake — createdBy is the viewer, and there is one
-// eligible reviewer so a post-cancel compose form is not gated off.
-function makeAuthorAdo(): AdoClient {
-  return makeAdoP3({
-    createdByAdoId: AUTHOR_ID,
-    reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
-  });
-}
-
 /** Confirms the open "Cancel round?" dialog, scoped so the trigger and
  *  the confirm button (both named "Cancel round") can't be confused. */
 function confirmCancel(dialog: HTMLElement): void {
@@ -899,14 +638,10 @@ describe("App — Phase 4 label edit", () => {
   it("makes the label editable for the author alone on an open round", async () => {
     // Both sides of the gate in one test: the author gets a field holding
     // the stored label; a reviewer and a bystander get read-only text.
-    const authorApi = makeApiP4({
+    const authorApi = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const authorView = renderApp(
-      makeSdk(AUTHOR_ID),
-      authorApi,
-      makeAuthorAdo()
-    );
+    const authorView = renderApp(makeSdk(AUTHOR_ID), authorApi, makeAdo());
 
     expect(await screen.findByRole("textbox")).toHaveValue(
       "Round 2 — Implementation Review"
@@ -914,10 +649,10 @@ describe("App — Phase 4 label edit", () => {
     authorView.unmount();
 
     for (const viewer of [REVIEWER_ONE_ID, STRANGER_ID]) {
-      const api = makeApiP4({
+      const api = makeApi({
         getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       });
-      const { unmount } = renderApp(makeSdk(viewer), api, makeAuthorAdo());
+      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo());
 
       expect(
         await screen.findByText("Round 2 — Implementation Review")
@@ -932,15 +667,10 @@ describe("App — Phase 4 label edit", () => {
     // terminal round is the compose form, so a bystander is the viewer that
     // still renders the round itself. GREEN BEFORE THE IMPLEMENTATION —
     // kept as the guard that the edit field never leaks past `open`.
-    const api = makeApiP4({
-      getCurrentRound: vi.fn().mockResolvedValue(
-        makeRound({
-          status: "cancelled",
-          cancelledAt: "2026-07-25T03:00:00.000Z",
-        })
-      ),
+    const api = makeApi({
+      getCurrentRound: vi.fn().mockResolvedValue(makeCancelledRound()),
     });
-    renderApp(makeSdk(STRANGER_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(STRANGER_ID), api, makeAdo());
 
     expect(
       await screen.findByText("Round 2 — Implementation Review")
@@ -950,11 +680,11 @@ describe("App — Phase 4 label edit", () => {
 
   it("commits the exact edited text on blur", async () => {
     const editLabel = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       editLabel,
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     const field = await screen.findByRole("textbox");
     fireEvent.change(field, {
@@ -975,11 +705,11 @@ describe("App — Phase 4 label edit", () => {
 
   it("commits the exact edited text on Enter", async () => {
     const editLabel = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       editLabel,
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     const field = await screen.findByRole("textbox");
     fireEvent.change(field, { target: { value: "Round 2 — Second pass" } });
@@ -992,11 +722,11 @@ describe("App — Phase 4 label edit", () => {
 
   it("does not call editLabel when the author commits an unchanged label", async () => {
     const editLabel = vi.fn();
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       editLabel,
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     // Focusing and leaving the field without typing is not an edit.
     const field = await screen.findByRole("textbox");
@@ -1009,11 +739,11 @@ describe("App — Phase 4 label edit", () => {
   it("replaces panel state with the round editLabel returns", async () => {
     // The API is authoritative on the stored wording.
     const renamed = makeRound({ label: "Round 2 — Stored by the API" });
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       editLabel: vi.fn().mockResolvedValue(renamed),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     const field = await screen.findByRole("textbox");
     fireEvent.change(field, { target: { value: "Round 2 — My rename" } });
@@ -1026,11 +756,11 @@ describe("App — Phase 4 label edit", () => {
 
   it("shows an inline message and leaves the round intact when the edit fails", async () => {
     const getCurrentRound = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound,
       editLabel: vi.fn().mockRejectedValue(new ApiError(500, null)),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     const field = await screen.findByRole("textbox");
     fireEvent.change(field, { target: { value: "Round 2 — My rename" } });
@@ -1052,23 +782,16 @@ describe("App — Phase 4 label edit", () => {
     "self-heals via a re-fetch when editLabel drifts (%s %s)",
     async (status, code) => {
       // The true state the re-fetch discovers: someone already closed it.
-      const healed = makeRound({
-        status: "closed",
-        closedAt: "2026-07-25T02:00:00.000Z",
-        reviewers: [
-          makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-          makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-        ],
-      });
+      const healed = makeClosedRound();
       const getCurrentRound = vi
         .fn()
         .mockResolvedValueOnce(makeRound()) // initial load
         .mockResolvedValue(healed); // drift re-fetch
-      const api = makeApiP4({
+      const api = makeApi({
         getCurrentRound,
         editLabel: vi.fn().mockRejectedValue(new ApiError(status, code)),
       });
-      renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+      renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
       const field = await screen.findByRole("textbox");
       fireEvent.change(field, { target: { value: "Round 2 — My rename" } });
@@ -1093,14 +816,10 @@ describe("App — Phase 4 cancel round", () => {
   it("shows Cancel round to the author alone on an open round", async () => {
     // Both sides of the gate in one test: the author gets the control, a
     // reviewer and a bystander never do.
-    const authorApi = makeApiP4({
+    const authorApi = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const authorView = renderApp(
-      makeSdk(AUTHOR_ID),
-      authorApi,
-      makeAuthorAdo()
-    );
+    const authorView = renderApp(makeSdk(AUTHOR_ID), authorApi, makeAdo());
 
     expect(
       await screen.findByRole("button", { name: /cancel round/i })
@@ -1108,10 +827,10 @@ describe("App — Phase 4 cancel round", () => {
     authorView.unmount();
 
     for (const viewer of [REVIEWER_ONE_ID, STRANGER_ID]) {
-      const api = makeApiP4({
+      const api = makeApi({
         getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       });
-      const { unmount } = renderApp(makeSdk(viewer), api, makeAuthorAdo());
+      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo());
 
       expect(await screen.findByText("Rev One")).toBeInTheDocument();
       expect(
@@ -1126,14 +845,14 @@ describe("App — Phase 4 cancel round", () => {
     // replaces the view entirely, and it carries no cancel control. GREEN
     // BEFORE THE IMPLEMENTATION — kept as the guard that the control never
     // leaks past `open`.
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi
         .fn()
         .mockResolvedValue(
-          makeRound({ status: "closed", closedAt: "2026-07-25T02:00:00.000Z" })
+          makeRound({ status: "closed", closedAt: CLOSED_AT })
         ),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     await screen.findByRole("button", { name: /ready for review/i });
     expect(
@@ -1143,11 +862,11 @@ describe("App — Phase 4 cancel round", () => {
 
   it("opens a confirmation dialog without cancelling anything", async () => {
     const cancelRound = vi.fn();
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       cancelRound,
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel round/i })
@@ -1160,11 +879,11 @@ describe("App — Phase 4 cancel round", () => {
 
   it("dismisses the confirmation without cancelling", async () => {
     const cancelRound = vi.fn();
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       cancelRound,
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel round/i })
@@ -1183,23 +902,19 @@ describe("App — Phase 4 cancel round", () => {
   });
 
   it("calls cancelRound — and nothing that could close the round — on confirm", async () => {
-    const cancelled = makeRound({
-      status: "cancelled",
-      cancelledAt: "2026-07-25T03:00:00.000Z",
-    });
+    const cancelled = makeCancelledRound();
     const cancelRound = vi.fn().mockResolvedValue(cancelled);
     const toggleDone = vi.fn();
-    const openRound = vi.fn();
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi
         .fn()
         .mockResolvedValueOnce(makeRound())
         .mockResolvedValue(cancelled),
       cancelRound,
       toggleDone,
-      openRound,
+      openRound: vi.fn(),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel round/i })
@@ -1210,22 +925,19 @@ describe("App — Phase 4 cancel round", () => {
     // Cancel is a silent abandonment: it routes through the cancel
     // endpoint alone, never a close-producing call.
     expect(toggleDone).not.toHaveBeenCalled();
-    expect(openRound).not.toHaveBeenCalled();
+    expect(api.openRound).not.toHaveBeenCalled();
   });
 
   it("reflects the cancelled round and offers the author round N+1", async () => {
-    const cancelled = makeRound({
-      status: "cancelled",
-      cancelledAt: "2026-07-25T03:00:00.000Z",
-    });
-    const api = makeApiP4({
+    const cancelled = makeCancelledRound();
+    const api = makeApi({
       getCurrentRound: vi
         .fn()
         .mockResolvedValueOnce(makeRound()) // open, before the cancel
         .mockResolvedValue(cancelled), // terminal, after it
       cancelRound: vi.fn().mockResolvedValue(cancelled),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel round/i })
@@ -1244,11 +956,11 @@ describe("App — Phase 4 cancel round", () => {
 
   it("shows an inline message and leaves the round open when the cancel fails", async () => {
     const getCurrentRound = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound,
       cancelRound: vi.fn().mockRejectedValue(new ApiError(500, null)),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel round/i })
@@ -1265,25 +977,18 @@ describe("App — Phase 4 cancel round", () => {
 
   it("self-heals via a re-fetch when cancelRound drifts (409 ROUND_NOT_OPEN)", async () => {
     // Someone met quorum first: the round closed before the cancel landed.
-    const healed = makeRound({
-      status: "closed",
-      closedAt: "2026-07-25T02:00:00.000Z",
-      reviewers: [
-        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-      ],
-    });
+    const healed = makeClosedRound();
     const getCurrentRound = vi
       .fn()
       .mockResolvedValueOnce(makeRound())
       .mockResolvedValue(healed);
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound,
       cancelRound: vi
         .fn()
         .mockRejectedValue(new ApiError(409, "ROUND_NOT_OPEN")),
     });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel round/i })
@@ -1359,18 +1064,6 @@ function refreshBanner(): HTMLElement | null {
   return screen.queryByRole("button", { name: /refresh/i });
 }
 
-/** A round closed by quorum — the state a second Done lands the panel in. */
-function closedRound(): Round {
-  return makeRound({
-    status: "closed",
-    closedAt: "2026-07-25T02:00:00.000Z",
-    reviewers: [
-      makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
-      makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
-    ],
-  });
-}
-
 describe("App — Phase 5 polling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1383,11 +1076,13 @@ describe("App — Phase 5 polling", () => {
   });
 
   it("re-reads the current round every ~20 seconds", async () => {
-    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(makeRound()));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound }),
+      makeAdo()
     );
     await flush();
 
@@ -1399,11 +1094,13 @@ describe("App — Phase 5 polling", () => {
   });
 
   it("stops polling while the tab is hidden and resumes when it returns", async () => {
-    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(makeRound()));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound }),
+      makeAdo()
     );
     await flush();
     expect(getCurrentRound).toHaveBeenCalledTimes(1);
@@ -1427,11 +1124,13 @@ describe("App — Phase 5 polling", () => {
         resolveToggle = resolve;
       })
     );
-    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(makeRound()));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound, toggleDone }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound, toggleDone }),
+      makeAdo()
     );
     await flush();
 
@@ -1440,7 +1139,7 @@ describe("App — Phase 5 polling", () => {
     expect(getCurrentRound).toHaveBeenCalledTimes(1);
 
     // Once the PATCH settles, polling picks up again.
-    resolveToggle(closedRound());
+    resolveToggle(makeClosedRound());
     await flush();
     await tickPoll();
     expect(getCurrentRound).toHaveBeenCalledTimes(2);
@@ -1460,11 +1159,13 @@ describe("App — Phase 5 drift + refresh banner", () => {
 
   it("stays quiet when a poll finds the round unchanged", async () => {
     // Every poll yields a fresh object; equal state must raise nothing.
-    const getCurrentRound = vi.fn().mockImplementation(async () => makeRound());
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(makeRound()));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound }),
+      makeAdo()
     );
     await flush();
 
@@ -1481,12 +1182,12 @@ describe("App — Phase 5 drift + refresh banner", () => {
     const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
     const getCurrentRound = vi
       .fn()
-      .mockImplementationOnce(async () => makeRound())
-      .mockImplementation(async () => drifted);
+      .mockImplementationOnce(() => Promise.resolve(makeRound()))
+      .mockImplementation(() => Promise.resolve(drifted));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound }),
+      makeAdo()
     );
     await flush();
 
@@ -1507,12 +1208,12 @@ describe("App — Phase 5 drift + refresh banner", () => {
     const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
     const getCurrentRound = vi
       .fn()
-      .mockImplementationOnce(async () => makeRound())
-      .mockImplementation(async () => drifted);
+      .mockImplementationOnce(() => Promise.resolve(makeRound()))
+      .mockImplementation(() => Promise.resolve(drifted));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound }),
+      makeAdo()
     );
     await flush();
     await tickPoll();
@@ -1536,12 +1237,12 @@ describe("App — Phase 5 drift + refresh banner", () => {
     const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
     const getCurrentRound = vi
       .fn()
-      .mockImplementationOnce(async () => makeRound())
-      .mockImplementation(async () => drifted);
+      .mockImplementationOnce(() => Promise.resolve(makeRound()))
+      .mockImplementation(() => Promise.resolve(drifted));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound }),
+      makeAdo()
     );
     await flush();
     await tickPoll();
@@ -1558,16 +1259,18 @@ describe("App — Phase 5 drift + refresh banner", () => {
   it("never raises the banner at the viewer for their own Done toggle", async () => {
     // The toggle's own reconcile is the newest state the viewer has seen,
     // so the poll that follows must find nothing to report.
-    const closed = closedRound();
+    const closed = makeClosedRound();
     const getCurrentRound = vi
       .fn()
-      .mockImplementationOnce(async () => makeRound())
-      .mockImplementation(async () => closed);
-    const toggleDone = vi.fn().mockImplementation(async () => closed);
+      .mockImplementationOnce(() => Promise.resolve(makeRound()))
+      .mockImplementation(() => Promise.resolve(closed));
+    const toggleDone = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(closed));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound, toggleDone }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound, toggleDone }),
+      makeAdo()
     );
     await flush();
 
@@ -1582,18 +1285,18 @@ describe("App — Phase 5 drift + refresh banner", () => {
   it("never raises the banner after a drift-heal re-fetch", async () => {
     // A 409 already reconciled the client to the true state, so that state
     // is the viewer's baseline — the next poll has nothing new to say.
-    const healed = closedRound();
+    const healed = makeClosedRound();
     const getCurrentRound = vi
       .fn()
-      .mockImplementationOnce(async () => makeRound())
-      .mockImplementation(async () => healed);
+      .mockImplementationOnce(() => Promise.resolve(makeRound()))
+      .mockImplementation(() => Promise.resolve(healed));
     const toggleDone = vi
       .fn()
       .mockRejectedValue(new ApiError(409, "ROUND_NOT_OPEN"));
     renderApp(
       makeSdk(REVIEWER_ONE_ID),
-      makeApiP4({ getCurrentRound, toggleDone }),
-      makeAuthorAdo()
+      makeApi({ getCurrentRound, toggleDone }),
+      makeAdo()
     );
     await flush();
 
@@ -1612,16 +1315,16 @@ describe("App — Phase 5 error surface", () => {
   });
 
   it("auto-retries a 503 once and surfaces nothing when the retry succeeds", async () => {
-    const closed = closedRound();
+    const closed = makeClosedRound();
     const toggleDone = vi
       .fn()
       .mockRejectedValueOnce(new ApiError(503, "CONCURRENCY_EXHAUSTED"))
       .mockResolvedValue(closed);
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       toggleDone,
     });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
 
@@ -1635,11 +1338,11 @@ describe("App — Phase 5 error surface", () => {
     const toggleDone = vi
       .fn()
       .mockRejectedValue(new ApiError(503, "CONCURRENCY_EXHAUSTED"));
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       toggleDone,
     });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
 
@@ -1655,11 +1358,11 @@ describe("App — Phase 5 error surface", () => {
     // 401 wording survives, and that the Phase 5 retry wrapper never
     // re-sends a request an expired token can only fail again.
     const toggleDone = vi.fn().mockRejectedValue(new ApiError(401, null));
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
       toggleDone,
     });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAuthorAdo());
+    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
 
     fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
 
@@ -1687,11 +1390,6 @@ describe("App — Phase 5 error surface", () => {
 //
 // Issue #13 / PRD #7 Phase 6. Terminology: docs/ubiquitous-language.md.
 
-/** The seam's "size me to my content" spy on an injected `sdk` fake. */
-function resizeSpy(sdk: SdkClient): ReturnType<typeof vi.fn> {
-  return (sdk as unknown as { resize: ReturnType<typeof vi.fn> }).resize;
-}
-
 describe("App — Phase 6 autosize", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1699,37 +1397,34 @@ describe("App — Phase 6 autosize", () => {
 
   it("sizes the frame to its content once the round renders", async () => {
     const sdk = makeSdk(REVIEWER_ONE_ID);
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    renderApp(sdk, api, makeAuthorAdo());
+    renderApp(sdk, api, makeAdo());
 
     // The spinner and the settled round are different heights, so the host
     // has to be told once the real content is on screen.
     await screen.findByText("Rev One");
-    await waitFor(() => expect(resizeSpy(sdk)).toHaveBeenCalled());
+    await waitFor(() => expect(sdk.resize).toHaveBeenCalled());
   });
 
   it("re-sizes when a mutation swaps the view under the viewer", async () => {
-    const cancelled = makeRound({
-      status: "cancelled",
-      cancelledAt: "2026-07-25T03:00:00.000Z",
-    });
+    const cancelled = makeCancelledRound();
     const sdk = makeSdk(AUTHOR_ID);
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi
         .fn()
         .mockResolvedValueOnce(makeRound())
         .mockResolvedValue(cancelled),
       cancelRound: vi.fn().mockResolvedValue(cancelled),
     });
-    renderApp(sdk, api, makeAuthorAdo());
+    renderApp(sdk, api, makeAdo());
 
     fireEvent.click(
       await screen.findByRole("button", { name: /cancel round/i })
     );
-    await waitFor(() => expect(resizeSpy(sdk)).toHaveBeenCalled());
-    const sizedForTheRound = resizeSpy(sdk).mock.calls.length;
+    await waitFor(() => expect(sdk.resize).toHaveBeenCalled());
+    const sizedForTheRound = sdk.resize.mock.calls.length;
 
     confirmCancel(await screen.findByRole("dialog"));
 
@@ -1737,7 +1432,7 @@ describe("App — Phase 6 autosize", () => {
     // the host cannot discover for itself.
     await screen.findByRole("button", { name: /ready for review/i });
     await waitFor(() =>
-      expect(resizeSpy(sdk).mock.calls.length).toBeGreaterThan(sizedForTheRound)
+      expect(sdk.resize.mock.calls.length).toBeGreaterThan(sizedForTheRound)
     );
   });
 });
@@ -1756,23 +1451,23 @@ describe("App — Phase 6 autosize on drift", () => {
   it("re-sizes when the refresh banner appears", async () => {
     const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
     const sdk = makeSdk(REVIEWER_ONE_ID);
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi
         .fn()
-        .mockImplementationOnce(async () => makeRound())
-        .mockImplementation(async () => drifted),
+        .mockImplementationOnce(() => Promise.resolve(makeRound()))
+        .mockImplementation(() => Promise.resolve(drifted)),
     });
-    renderApp(sdk, api, makeAuthorAdo());
+    renderApp(sdk, api, makeAdo());
     await flush();
 
-    const sizedForTheRound = resizeSpy(sdk).mock.calls.length;
+    const sizedForTheRound = sdk.resize.mock.calls.length;
     await tickPoll();
 
     // The banner is a whole extra row appearing below the panel; without a
     // re-measure the host frame clips it, which is precisely the row the
     // viewer has to click.
     expect(refreshBanner()).not.toBeNull();
-    expect(resizeSpy(sdk).mock.calls.length).toBeGreaterThan(sizedForTheRound);
+    expect(sdk.resize.mock.calls.length).toBeGreaterThan(sizedForTheRound);
   });
 });
 
@@ -1783,10 +1478,10 @@ describe("App — Phase 6 theming", () => {
 
   it("hardcodes no colour of its own, so the host's theme governs the panel", async () => {
     const sdk = makeSdk(REVIEWER_ONE_ID);
-    const api = makeApiP4({
+    const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
     });
-    const { container } = renderApp(sdk, api, makeAuthorAdo());
+    const { container } = renderApp(sdk, api, makeAdo());
     await screen.findByText("Rev One");
 
     // Scoped to the panel's OWN markup (`prsync-` classes): `azure-devops-ui`
