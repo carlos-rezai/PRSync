@@ -144,24 +144,9 @@ export function createApiClient(
     },
 
     async openRound(prKey, request) {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `${baseUrl}/api/prs/${encodeURIComponent(prKey)}/rounds`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          // An untouched label is `undefined` and drops out of the JSON,
-          // leaving the API to generate the canonical wording.
-          body: JSON.stringify(request),
-        }
+      return readRound(
+        await send(rounds(prKey), { method: "POST", body: request })
       );
-      if (!response.ok) {
-        throw new ApiError(response.status, await readErrorCode(response));
-      }
-      return (await response.json()) as Round;
     },
 
     async editLabel(prKey, roundNumber, label) {
@@ -174,18 +159,13 @@ export function createApiClient(
     },
 
     async cancelRound(prKey, roundNumber) {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `${baseUrl}/api/prs/${encodeURIComponent(prKey)}/rounds/${roundNumber}/cancel`,
-        {
+      // No body: the round number in the path is the whole request, so no
+      // `Content-Type` goes out either.
+      return readRound(
+        await send(`${rounds(prKey)}/${roundNumber}/cancel`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        }
+        })
       );
-      if (!response.ok) {
-        throw new ApiError(response.status, await readErrorCode(response));
-      }
-      return (await response.json()) as Round;
     },
   };
 }
