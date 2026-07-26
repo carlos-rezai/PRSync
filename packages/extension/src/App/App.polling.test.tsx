@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
-import { ApiError } from "../api";
+import { ApiError } from "../lib";
 import type { Round } from "../lib";
 import {
   makeClosedRound,

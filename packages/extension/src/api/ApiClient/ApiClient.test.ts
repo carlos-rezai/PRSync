@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createApiClient } from "./ApiClient";
-import { ApiError } from "../ApiError/ApiError";
+import { ApiError } from "../../lib";
 import {
   AUTHOR_EMAIL,
   AUTHOR_NAME,

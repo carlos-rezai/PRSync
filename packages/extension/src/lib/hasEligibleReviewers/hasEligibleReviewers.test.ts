@@ -40,7 +40,10 @@ describe("hasEligibleReviewers", () => {
 
   it("is false when the only individual is the author", () => {
     expect(
-      hasEligibleReviewers([{ adoId: AUTHOR_ID, isContainer: false }], AUTHOR_ID)
+      hasEligibleReviewers(
+        [{ adoId: AUTHOR_ID, isContainer: false }],
+        AUTHOR_ID
+      )
     ).toBe(false);
   });
 

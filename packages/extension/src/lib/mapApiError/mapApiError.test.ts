@@ -22,14 +22,11 @@ describe("mapApiError — {status, code} → recovery guidance", () => {
     [403, "NOT_AUTHOR"],
     [409, "ROUND_NOT_OPEN"],
     [409, "ROUND_ALREADY_OPEN"],
-  ])(
-    "maps drift-class %s %s to a self-healing refetch",
-    (status, code) => {
-      const guidance = mapApiError(status, code);
-      expect(guidance.recovery).toBe("refetch");
-      expect(guidance.message).toBeTruthy();
-    }
-  );
+  ])("maps drift-class %s %s to a self-healing refetch", (status, code) => {
+    const guidance = mapApiError(status, code);
+    expect(guidance.recovery).toBe("refetch");
+    expect(guidance.message).toBeTruthy();
+  });
 
   it("maps 422 INSUFFICIENT_REVIEWERS to an inline validation message", () => {
     const guidance = mapApiError(422, "INSUFFICIENT_REVIEWERS");

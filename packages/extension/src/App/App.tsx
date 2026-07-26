@@ -6,10 +6,10 @@ import {
   mapApiError,
   roundFingerprint,
 } from "../lib";
+import { ApiError } from "../lib";
 import type { Phase, Round } from "../lib";
 import type { SdkClient } from "../sdk";
 import type { ApiClient } from "../api";
-import { ApiError } from "../api";
 import type { AdoClient, AdoPullRequest } from "../ado";
 import {
   ComposeForm,

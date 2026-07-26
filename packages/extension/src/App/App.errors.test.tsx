@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
-import { ApiError } from "../api";
+import { ApiError } from "../lib";
 import {
   REVIEWER_ONE_ID,
   makeClosedRound,

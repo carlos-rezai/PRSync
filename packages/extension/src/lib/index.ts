@@ -4,6 +4,7 @@
 // never through this barrel, to avoid import cycles.
 
 export * from "./types/types";
+export * from "./ApiError/ApiError";
 export * from "./buildPrKey/buildPrKey";
 export * from "./deriveRole/deriveRole";
 export * from "./deriveDefaultLabel/deriveDefaultLabel";

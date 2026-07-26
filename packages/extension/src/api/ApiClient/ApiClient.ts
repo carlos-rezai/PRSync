@@ -1,6 +1,6 @@
+import { ApiError } from "../../lib";
 import type { Round } from "../../lib";
 import type { AdoReviewer } from "../../ado";
-import { ApiError } from "../ApiError/ApiError";
 
 // The PRSync API client. Phase 4 completes the round's write surface —
 // the Phase 1 current-round read, the Phase 2 own-row Done toggle, the

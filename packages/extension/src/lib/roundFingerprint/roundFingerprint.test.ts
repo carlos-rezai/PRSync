@@ -17,7 +17,8 @@ import type { Round, RoundReviewer } from "../types/types";
 // change how it encodes them. Issue #12 / PRD #7 Phase 5. Terminology:
 // docs/ubiquitous-language.md.
 
-const PR_KEY = "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
+const PR_KEY =
+  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
 
 const REVIEWER_ONE_ID = "reviewer1-guid-0000-0000-0000-0000000002";
 const REVIEWER_TWO_ID = "reviewer2-guid-0000-0000-0000-0000000003";
@@ -114,7 +115,10 @@ describe("roundFingerprint — salient changes", () => {
     // The author cancelled, or quorum closed it, while the viewer watched.
     expect(
       roundFingerprint(
-        makeRound({ status: "cancelled", cancelledAt: "2026-07-25T03:00:00.000Z" })
+        makeRound({
+          status: "cancelled",
+          cancelledAt: "2026-07-25T03:00:00.000Z",
+        })
       )
     ).not.toBe(roundFingerprint(makeRound()));
   });
@@ -128,7 +132,9 @@ describe("roundFingerprint — salient changes", () => {
   it("changes when the label changes", () => {
     // The author renamed the round from their own panel.
     expect(
-      roundFingerprint(makeRound({ label: "Round 2 — Please re-read the spec" }))
+      roundFingerprint(
+        makeRound({ label: "Round 2 — Please re-read the spec" })
+      )
     ).not.toBe(roundFingerprint(makeRound()));
   });
 
