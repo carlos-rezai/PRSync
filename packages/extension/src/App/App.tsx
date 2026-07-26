@@ -5,6 +5,7 @@ import {
   hasEligibleReviewers,
   mapApiError,
   roundFingerprint,
+  withSingleRetry,
 } from "../lib";
 import { ApiError } from "../lib";
 import type { Phase, Round } from "../lib";
@@ -78,28 +79,6 @@ type LoadState =
 
 /** Poll cadence, within the layout spec's 15–30s window. */
 const POLL_INTERVAL_MS = 20_000;
-
-/**
- * Runs a round mutation, auto-retrying EXACTLY once when the API reports a
- * transient write conflict (`503 CONCURRENCY_EXHAUSTED`, which
- * `mapApiError` classes as `retry`). Momentary contention is then
- * invisible to the viewer; a second failure propagates so `routeFailure`
- * surfaces the guidance a spent retry leaves behind — try again yourself.
- * Nothing else is ever re-sent: a `401`, for one, can only fail again.
- */
-async function withSingleRetry<T>(mutation: () => Promise<T>): Promise<T> {
-  try {
-    return await mutation();
-  } catch (error) {
-    const transient =
-      error instanceof ApiError &&
-      mapApiError(error.status, error.code).recovery === "retry";
-    if (!transient) {
-      throw error;
-    }
-    return mutation();
-  }
-}
 
 export function App({ sdk, api, ado }: AppProps): React.ReactElement {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
