@@ -554,9 +554,10 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    // The open round renders; a second round can't be opened concurrently.
+    // The open round renders (for the author the label is the Phase 4
+    // edit field); a second round can't be opened concurrently.
     expect(
-      await screen.findByText("Round 2 — Implementation Review")
+      await screen.findByDisplayValue("Round 2 — Implementation Review")
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /ready for review/i })
@@ -799,9 +800,10 @@ describe("App — Phase 3 Ready for review", () => {
       })
     );
 
-    // The returned Round replaces panel state — the new open round renders.
+    // The returned Round replaces panel state — the new open round renders,
+    // with its label in the author's Phase 4 edit field.
     expect(
-      await screen.findByText("Round 2 — Implementation Review")
+      await screen.findByDisplayValue("Round 2 — Implementation Review")
     ).toBeInTheDocument();
     expect(screen.getByText(/1 of 2 reviewed/i)).toBeInTheDocument();
   });

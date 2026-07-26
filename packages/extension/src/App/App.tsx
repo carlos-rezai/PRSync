@@ -45,6 +45,14 @@ import {
 // `INSUFFICIENT_REVIEWERS` surfaces inline as the server-owned backstop to
 // the client's `hasEligibleReviewers` gate.
 
+// Label edit / Cancel round (PRD #7 Phase 4): the author's two management
+// actions on an open round. `editLabel` sends the author's exact text and
+// the returned `Round` replaces panel state (the API's stored wording
+// wins). `cancelRound` silently abandons the round — reached only through
+// a confirmation dialog — and the resulting terminal round hands the
+// author straight to the compose form for round N+1. Both reuse the
+// toggle's failure contract through `routeFailure`.
+
 interface AppProps {
   sdk: SdkClient;
   api: ApiClient;
@@ -58,24 +66,55 @@ type LoadState =
 
 export function App({ sdk, api, ado }: AppProps): React.ReactElement {
   const [state, setState] = React.useState<LoadState>({ status: "loading" });
-  const [toggleError, setToggleError] = React.useState<string | null>(null);
+  // One inline slot for every round mutation (toggle / label / cancel) —
+  // they share the same failure contract and the same place on screen.
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
   const [openError, setOpenError] = React.useState<string | null>(null);
   const [opening, setOpening] = React.useState(false);
 
-  // Reads the current round and resolves the ready state. ADO's live PR is
-  // read only when a compose form may follow: no round at all (the read
-  // also decides author vs. bystander), or a terminal round the author
-  // could follow with the next one. An open round is self-sufficient.
-  // Shared by the initial load and the drift-heal re-fetch.
+  // Settles the ready state around a round, reading ADO's live PR only
+  // when a compose form may follow: no round at all (the read also decides
+  // author vs. bystander), or a terminal round the author could follow
+  // with the next one. An open round is self-sufficient.
+  const settle = React.useCallback(
+    async (round: Round | null): Promise<LoadState> => {
+      const mayCompose =
+        round === null ||
+        (round.status !== "open" && sdk.getUser().id === round.authorAdoId);
+      const pr = mayCompose ? await ado.getPullRequest(sdk.prKeyParts()) : null;
+      return { status: "ready", round, pr };
+    },
+    [sdk, ado]
+  );
+
+  // Reads the current round and settles around it — shared by the initial
+  // load and the drift-heal re-fetch.
   const resolveReadyState = React.useCallback(async (): Promise<LoadState> => {
-    const parts = sdk.prKeyParts();
-    const round = await api.getCurrentRound(buildPrKey(parts));
-    const mayCompose =
-      round === null ||
-      (round.status !== "open" && sdk.getUser().id === round.authorAdoId);
-    const pr = mayCompose ? await ado.getPullRequest(parts) : null;
-    return { status: "ready", round, pr };
-  }, [sdk, api, ado]);
+    return settle(await api.getCurrentRound(buildPrKey(sdk.prKeyParts())));
+  }, [sdk, api, settle]);
+
+  // Routes a mutation failure. A drift-class 409/403 re-fetches the true
+  // state and self-heals in place, returning `null` (nothing left to
+  // show); anything else returns the message to surface inline.
+  const routeFailure = React.useCallback(
+    async (error: unknown): Promise<string | null> => {
+      const guidance =
+        error instanceof ApiError
+          ? mapApiError(error.status, error.code)
+          : mapApiError(500, null);
+
+      if (guidance.recovery !== "refetch") {
+        return guidance.message;
+      }
+      try {
+        setState(await resolveReadyState());
+      } catch {
+        setState({ status: "error" });
+      }
+      return null;
+    },
+    [resolveReadyState]
+  );
 
   React.useEffect(() => {
     let cancelled = false;
@@ -111,7 +150,7 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
     const nextDone = !me.done;
 
     // Optimistic: flip the viewer's own row before the PATCH resolves.
-    setToggleError(null);
+    setMutationError(null);
     setState({
       status: "ready",
       round: {
@@ -135,28 +174,60 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
       // surfaces the auto-close and freezes the list.
       setState({ status: "ready", round: updated, pr: currentPr });
     } catch (error) {
-      const guidance =
-        error instanceof ApiError
-          ? mapApiError(error.status, error.code)
-          : mapApiError(500, null);
-
-      if (guidance.recovery === "refetch") {
-        // Drift: re-read the true state and self-heal, no inline error.
-        try {
-          setState(await resolveReadyState());
-        } catch {
-          setState({ status: "error" });
-        }
-        return;
+      const message = await routeFailure(error);
+      if (message !== null) {
+        // Revert the optimistic flip and show the inline recovery message.
+        setState({ status: "ready", round: currentRound, pr: currentPr });
+        setMutationError(message);
       }
+    }
+  }
 
-      // Revert the optimistic flip and show the inline recovery message.
-      setState({
-        status: "ready",
-        round: currentRound,
-        pr: currentPr,
-      });
-      setToggleError(guidance.message);
+  async function handleEditLabel(label: string): Promise<void> {
+    if (state.status !== "ready" || state.round === null) {
+      return;
+    }
+    const currentRound = state.round;
+    const currentPr = state.pr;
+
+    setMutationError(null);
+    try {
+      // The author's typed text is already on screen, so there is no
+      // optimistic write to revert — only the returned round to apply.
+      const renamed = await api.editLabel(
+        currentRound.prKey,
+        currentRound.roundNumber,
+        label
+      );
+      setState({ status: "ready", round: renamed, pr: currentPr });
+    } catch (error) {
+      const message = await routeFailure(error);
+      if (message !== null) {
+        setMutationError(message);
+      }
+    }
+  }
+
+  async function handleCancelRound(): Promise<void> {
+    if (state.status !== "ready" || state.round === null) {
+      return;
+    }
+    const currentRound = state.round;
+
+    setMutationError(null);
+    try {
+      const cancelled = await api.cancelRound(
+        currentRound.prKey,
+        currentRound.roundNumber
+      );
+      // The cancelled round is terminal, so settling reads ADO's live PR
+      // and the author lands straight on the compose form for round N+1.
+      setState(await settle(cancelled));
+    } catch (error) {
+      const message = await routeFailure(error);
+      if (message !== null) {
+        setMutationError(message);
+      }
     }
   }
 
@@ -181,22 +252,12 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
       });
       setState({ status: "ready", round: opened, pr: null });
     } catch (error) {
-      const guidance =
-        error instanceof ApiError
-          ? mapApiError(error.status, error.code)
-          : mapApiError(500, null);
-
-      if (guidance.recovery === "refetch") {
-        // Drift (someone already opened a round): re-read and self-heal.
-        try {
-          setState(await resolveReadyState());
-        } catch {
-          setState({ status: "error" });
-        }
-        return;
+      // A drift here (someone already opened a round) self-heals; anything
+      // else belongs next to the compose form's own primary action.
+      const message = await routeFailure(error);
+      if (message !== null) {
+        setOpenError(message);
       }
-
-      setOpenError(guidance.message);
     } finally {
       setOpening(false);
     }
@@ -257,7 +318,13 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
       onToggleOwn={() => {
         void handleToggleOwn();
       }}
-      toggleError={toggleError}
+      onEditLabel={(label) => {
+        void handleEditLabel(label);
+      }}
+      onCancelRound={() => {
+        void handleCancelRound();
+      }}
+      mutationError={mutationError}
     />
   );
 }

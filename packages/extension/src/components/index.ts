@@ -5,7 +5,9 @@
 
 export * from "./PanelHeader/PanelHeader";
 export * from "./RoundView/RoundView";
+export * from "./RoundLabel/RoundLabel";
 export * from "./ReviewerList/ReviewerList";
+export * from "./CancelRoundControl/CancelRoundControl";
 export * from "./StatusPill/StatusPill";
 export * from "./EmptyState/EmptyState";
 export * from "./ComposeForm/ComposeForm";

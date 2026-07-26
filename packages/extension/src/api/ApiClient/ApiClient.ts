@@ -2,12 +2,12 @@ import type { Round } from "../../lib";
 import type { AdoReviewer } from "../../ado";
 import { ApiError } from "../ApiError/ApiError";
 
-// The PRSync API client. Phase 3 adds round-opening to the Phase 1
-// current-round read and the Phase 2 own-row Done toggle; later phases
-// (edit-label, cancel) extend it further. Every call carries the caller's
-// ADO bearer token, obtained via the injected token getter, and rejects
-// with an `ApiError` (status + service code) so `mapApiError` can route
-// the recovery.
+// The PRSync API client. Phase 4 completes the round's write surface —
+// the Phase 1 current-round read, the Phase 2 own-row Done toggle, the
+// Phase 3 round-open, and the author's two management actions here. Every
+// call carries the caller's ADO bearer token, obtained via the injected
+// token getter, and rejects with an `ApiError` (status + service code) so
+// `mapApiError` can route the recovery.
 
 /**
  * The body of `POST /api/prs/{prKey}/rounds` — a snapshot of ADO's live
@@ -47,6 +47,20 @@ export interface ApiClient {
    * `INSUFFICIENT_REVIEWERS`, the server-owned gate on the snapshot.
    */
   openRound(prKey: string, request: OpenRoundRequest): Promise<Round>;
+
+  /**
+   * PATCH an open round's label with the author's exact text. Resolves to
+   * the authoritative `Round` the service returns — the stored wording
+   * wins over what the author typed. Rejects with an `ApiError`.
+   */
+  editLabel(prKey: string, roundNumber: number, label: string): Promise<Round>;
+
+  /**
+   * POST the silent abandonment of an open round: it becomes `cancelled`
+   * and, unlike a real close, fires no Teams DM. Resolves to the
+   * cancelled `Round`. Rejects with an `ApiError`.
+   */
+  cancelRound(prKey: string, roundNumber: number): Promise<Round>;
 }
 
 /** Reads the service's machine error `code` from a non-OK JSON body. */
@@ -115,6 +129,40 @@ export function createApiClient(
           // An untouched label is `undefined` and drops out of the JSON,
           // leaving the API to generate the canonical wording.
           body: JSON.stringify(request),
+        }
+      );
+      if (!response.ok) {
+        throw new ApiError(response.status, await readErrorCode(response));
+      }
+      return (await response.json()) as Round;
+    },
+
+    async editLabel(prKey, roundNumber, label) {
+      const token = await getAccessToken();
+      const response = await fetch(
+        `${baseUrl}/api/prs/${encodeURIComponent(prKey)}/rounds/${roundNumber}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ label }),
+        }
+      );
+      if (!response.ok) {
+        throw new ApiError(response.status, await readErrorCode(response));
+      }
+      return (await response.json()) as Round;
+    },
+
+    async cancelRound(prKey, roundNumber) {
+      const token = await getAccessToken();
+      const response = await fetch(
+        `${baseUrl}/api/prs/${encodeURIComponent(prKey)}/rounds/${roundNumber}/cancel`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
         }
       );
       if (!response.ok) {
