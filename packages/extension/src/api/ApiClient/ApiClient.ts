@@ -81,20 +81,57 @@ export function createApiClient(
   baseUrl: string,
   getAccessToken: () => Promise<string>
 ): ApiClient {
+  /**
+   * Everything the five calls have in common: the caller's bearer token,
+   * the JSON content type when there is something to send, and the
+   * non-OK-to-`ApiError` translation. Resolves to the raw `Response` so
+   * the one call that cares about a `204` can still see it.
+   */
+  async function send(
+    path: string,
+    options: { method?: string; body?: unknown } = {}
+  ): Promise<Response> {
+    const token = await getAccessToken();
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (options.body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: options.method,
+      headers,
+      // An untouched compose label is `undefined` and drops out of the
+      // JSON here, leaving the API to generate the canonical wording.
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, await readErrorCode(response));
+    }
+    return response;
+  }
+
+  /**
+   * The single point where an API response becomes a `Round`. Every call
+   * that returns one goes through here, so the assertion the wire forces
+   * on us lives in exactly one place rather than five.
+   */
+  async function readRound(response: Response): Promise<Round> {
+    return (await response.json()) as Round;
+  }
+
+  /** The PR's round collection, with the key encoded into the segment. */
+  function rounds(prKey: string): string {
+    return `/api/prs/${encodeURIComponent(prKey)}/rounds`;
+  }
+
   return {
     async getCurrentRound(prKey) {
-      const token = await getAccessToken();
-      const response = await fetch(
-        `${baseUrl}/api/prs/${encodeURIComponent(prKey)}/rounds/current`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (response.status === 204) {
-        return null;
-      }
-      if (!response.ok) {
-        throw new ApiError(response.status, await readErrorCode(response));
-      }
-      return (await response.json()) as Round;
+      const response = await send(`${rounds(prKey)}/current`);
+      // The one call with a meaningful empty success: `204` is "this PR
+      // has never had a round", which is a state, not a failure.
+      return response.status === 204 ? null : readRound(response);
     },
 
     async toggleDone(prKey, roundNumber, done) {
