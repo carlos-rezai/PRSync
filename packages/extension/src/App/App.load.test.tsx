@@ -5,7 +5,6 @@ import {
   AUTHOR_ID,
   REVIEWER_ONE_ID,
   STRANGER_ID,
-  makeClosedRound,
   makeRound,
 } from "../test/fixtures/fixtures";
 import { makeAdo, makeApi, makeSdk, renderApp } from "../test/fixtures/fakes";
@@ -20,6 +19,11 @@ import { makeAdo, makeApi, makeSdk, renderApp } from "../test/fixtures/fakes";
 //
 // Also here: which of the three views the viewer's role selects, both
 // empty states, and the failed-load state.
+//
+// What is NOT here is what a component renders from its props — the status
+// pill's wording is `StatusPill`'s test, the reviewer rows are
+// `ReviewerList`'s. An assertion belongs in this file only if it checks
+// which client the panel called, how many times, or which view it chose.
 //
 // Driven entirely through injected `sdk` / `api` / `ado` fakes (design log
 // 02, Q14 — no SDK is mocked, no live ADO host is contacted). Assertions
@@ -48,35 +52,14 @@ describe("App — initial load", () => {
     const ado = makeAdo();
     renderApp(makeSdk(REVIEWER_ONE_ID), api, ado);
 
-    // The round label and both reviewer personas render from the snapshot.
+    // The round view renders straight from the snapshot.
     expect(
       await screen.findByText("Round 2 — Implementation Review")
     ).toBeInTheDocument();
-    expect(screen.getByText("Rev One")).toBeInTheDocument();
-    expect(screen.getByText("Rev Two")).toBeInTheDocument();
 
     // A 200 is self-sufficient — ADO's live PR is never read on load.
     expect(ado.getPullRequest).not.toHaveBeenCalled();
     expect(api.getCurrentRound).toHaveBeenCalledTimes(1);
-  });
-
-  it("derives the status pill 'N of M reviewed' while the round is open", async () => {
-    // One of two reviewers is done → "1 of 2 reviewed".
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-    });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
-
-    expect(await screen.findByText(/1 of 2 reviewed/i)).toBeInTheDocument();
-  });
-
-  it("derives the status pill 'All reviewed' once the round is closed", async () => {
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeClosedRound()),
-    });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
-
-    expect(await screen.findByText(/all reviewed/i)).toBeInTheDocument();
   });
 
   it("renders a Bystander a fully read-only view of the open round (not ZeroData)", async () => {
@@ -85,8 +68,11 @@ describe("App — initial load", () => {
     });
     renderApp(makeSdk(STRANGER_ID), api, makeAdo());
 
-    // The bystander still sees the round content, read-only.
-    expect(await screen.findByText("Rev One")).toBeInTheDocument();
+    // A bystander gets the round view, not an empty state — being
+    // uninvolved is not the same as there being nothing to see.
+    expect(
+      await screen.findByText("Round 2 — Implementation Review")
+    ).toBeInTheDocument();
     expect(screen.queryByText(/no round yet/i)).not.toBeInTheDocument();
   });
 
