@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import { App } from "./App";
 import type { SdkClient } from "../sdk";
 import type { ApiClient } from "../api";
@@ -798,5 +804,482 @@ describe("App — Phase 3 Ready for review", () => {
       await screen.findByText("Round 2 — Implementation Review")
     ).toBeInTheDocument();
     expect(screen.getByText(/1 of 2 reviewed/i)).toBeInTheDocument();
+  });
+});
+
+// --- Phase 4: Label edit + Cancel round -------------------------------
+//
+// The author's two management actions on an OPEN round.
+//
+// Label edit: the round label is an inline-editable `TextField` for the
+// author while the round is `open`, display-only for everyone else. The
+// edit commits on blur OR Enter and calls `editLabel` with the EXACT text
+// the author typed; the returned `Round` replaces panel state (so an API
+// that normalises the wording wins). The typed text is already on screen,
+// so there is no optimistic write to revert — a failure surfaces inline
+// and leaves the round untouched.
+//
+// Cancel round: a danger `Button` shown only to the author and only while
+// `open`. It opens a "Cancel round?" confirmation `Dialog` — the endpoint
+// is NOT reachable by a single misclick — and only confirming calls
+// `cancelRound`. Cancelling is a SILENT abandonment: the panel's share of
+// that contract is that this path goes through `cancelRound` alone and
+// never through a close-producing call (the notification silence itself is
+// Feature 1's, already covered in packages/api). Once cancelled the round
+// is terminal, so the author immediately gets the compose form for round
+// N+1 — the full open → cancelled → open cycle from the panel.
+//
+// Both mutations reuse the Phase 2 error contract: a generic failure shows
+// an inline message and leaves panel state intact; a drift-class 409/403
+// maps (via `mapApiError`) to a re-fetch that self-heals the client.
+//
+// Issue #11 / PRD #7 Phase 4. Terminology: docs/ubiquitous-language.md.
+
+function makeApiP4(opts: {
+  getCurrentRound: ApiClient["getCurrentRound"];
+  editLabel?: (
+    prKey: string,
+    roundNumber: number,
+    label: string
+  ) => Promise<Round>;
+  cancelRound?: (prKey: string, roundNumber: number) => Promise<Round>;
+  toggleDone?: (
+    prKey: string,
+    roundNumber: number,
+    done: boolean
+  ) => Promise<Round>;
+  openRound?: (prKey: string, request: unknown) => Promise<Round>;
+}): ApiClient {
+  return {
+    editLabel: vi.fn(),
+    cancelRound: vi.fn(),
+    toggleDone: vi.fn(),
+    openRound: vi.fn(),
+    ...opts,
+  } as unknown as ApiClient;
+}
+
+// The author's own ADO fake — createdBy is the viewer, and there is one
+// eligible reviewer so a post-cancel compose form is not gated off.
+function makeAuthorAdo(): AdoClient {
+  return makeAdoP3({
+    createdByAdoId: AUTHOR_ID,
+    reviewers: [adoReviewer(REVIEWER_ONE_ID, "Rev One")],
+  });
+}
+
+/** Confirms the open "Cancel round?" dialog, scoped so the trigger and
+ *  the confirm button (both named "Cancel round") can't be confused. */
+function confirmCancel(dialog: HTMLElement): void {
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: /cancel round/i })
+  );
+}
+
+describe("App — Phase 4 label edit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("makes the label editable for the author alone on an open round", async () => {
+    // Both sides of the gate in one test: the author gets a field holding
+    // the stored label; a reviewer and a bystander get read-only text.
+    const authorApi = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+    });
+    const authorView = renderApp(
+      makeSdk(AUTHOR_ID),
+      authorApi,
+      makeAuthorAdo()
+    );
+
+    expect(await screen.findByRole("textbox")).toHaveValue(
+      "Round 2 — Implementation Review"
+    );
+    authorView.unmount();
+
+    for (const viewer of [REVIEWER_ONE_ID, STRANGER_ID]) {
+      const api = makeApiP4({
+        getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      });
+      const { unmount } = renderApp(makeSdk(viewer), api, makeAuthorAdo());
+
+      expect(
+        await screen.findByText("Round 2 — Implementation Review")
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("shows the label as read-only text once the round is no longer open", async () => {
+    // A terminal round can't be renamed by anyone. The author's view of a
+    // terminal round is the compose form, so a bystander is the viewer that
+    // still renders the round itself. GREEN BEFORE THE IMPLEMENTATION —
+    // kept as the guard that the edit field never leaks past `open`.
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(
+        makeRound({
+          status: "cancelled",
+          cancelledAt: "2026-07-25T03:00:00.000Z",
+        })
+      ),
+    });
+    renderApp(makeSdk(STRANGER_ID), api, makeAuthorAdo());
+
+    expect(
+      await screen.findByText("Round 2 — Implementation Review")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("commits the exact edited text on blur", async () => {
+    const editLabel = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      editLabel,
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    const field = await screen.findByRole("textbox");
+    fireEvent.change(field, {
+      target: { value: "Round 2 — Please re-read the spec" },
+    });
+    fireEvent.blur(field);
+
+    // The author's exact text is honored — no re-derivation, no trimming
+    // of their wording into the canonical format.
+    await waitFor(() =>
+      expect(editLabel).toHaveBeenCalledWith(
+        PR_KEY,
+        2,
+        "Round 2 — Please re-read the spec"
+      )
+    );
+  });
+
+  it("commits the exact edited text on Enter", async () => {
+    const editLabel = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      editLabel,
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    const field = await screen.findByRole("textbox");
+    fireEvent.change(field, { target: { value: "Round 2 — Second pass" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(editLabel).toHaveBeenCalledWith(PR_KEY, 2, "Round 2 — Second pass")
+    );
+  });
+
+  it("does not call editLabel when the author commits an unchanged label", async () => {
+    const editLabel = vi.fn();
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      editLabel,
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    // Focusing and leaving the field without typing is not an edit.
+    const field = await screen.findByRole("textbox");
+    fireEvent.blur(field);
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    expect(editLabel).not.toHaveBeenCalled();
+  });
+
+  it("replaces panel state with the round editLabel returns", async () => {
+    // The API is authoritative on the stored wording.
+    const renamed = makeRound({ label: "Round 2 — Stored by the API" });
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      editLabel: vi.fn().mockResolvedValue(renamed),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    const field = await screen.findByRole("textbox");
+    fireEvent.change(field, { target: { value: "Round 2 — My rename" } });
+    fireEvent.blur(field);
+
+    expect(
+      await screen.findByDisplayValue("Round 2 — Stored by the API")
+    ).toBeInTheDocument();
+  });
+
+  it("shows an inline message and leaves the round intact when the edit fails", async () => {
+    const getCurrentRound = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP4({
+      getCurrentRound,
+      editLabel: vi.fn().mockRejectedValue(new ApiError(500, null)),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    const field = await screen.findByRole("textbox");
+    fireEvent.change(field, { target: { value: "Round 2 — My rename" } });
+    fireEvent.blur(field);
+
+    expect(
+      await screen.findByText(/couldn't|could not|failed|try again|went wrong/i)
+    ).toBeInTheDocument();
+    // A generic failure must NOT trigger a drift re-fetch, and the round
+    // itself is untouched.
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/1 of 2 reviewed/i)).toBeInTheDocument();
+  });
+
+  it.each([
+    [409, "ROUND_NOT_OPEN"],
+    [403, "NOT_AUTHOR"],
+  ])(
+    "self-heals via a re-fetch when editLabel drifts (%s %s)",
+    async (status, code) => {
+      // The true state the re-fetch discovers: someone already closed it.
+      const healed = makeRound({
+        status: "closed",
+        closedAt: "2026-07-25T02:00:00.000Z",
+        reviewers: [
+          makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
+          makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
+        ],
+      });
+      const getCurrentRound = vi
+        .fn()
+        .mockResolvedValueOnce(makeRound()) // initial load
+        .mockResolvedValue(healed); // drift re-fetch
+      const api = makeApiP4({
+        getCurrentRound,
+        editLabel: vi.fn().mockRejectedValue(new ApiError(status, code)),
+      });
+      renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+      const field = await screen.findByRole("textbox");
+      fireEvent.change(field, { target: { value: "Round 2 — My rename" } });
+      fireEvent.blur(field);
+
+      // The drift maps (via mapApiError) to a re-fetch that reconciles the
+      // client to the true, closed state — which for the author is the
+      // compose form for the next round.
+      await waitFor(() => expect(getCurrentRound).toHaveBeenCalledTimes(2));
+      expect(
+        await screen.findByRole("button", { name: /ready for review/i })
+      ).toBeInTheDocument();
+    }
+  );
+});
+
+describe("App — Phase 4 cancel round", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows Cancel round to the author alone on an open round", async () => {
+    // Both sides of the gate in one test: the author gets the control, a
+    // reviewer and a bystander never do.
+    const authorApi = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+    });
+    const authorView = renderApp(
+      makeSdk(AUTHOR_ID),
+      authorApi,
+      makeAuthorAdo()
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /cancel round/i })
+    ).toBeInTheDocument();
+    authorView.unmount();
+
+    for (const viewer of [REVIEWER_ONE_ID, STRANGER_ID]) {
+      const api = makeApiP4({
+        getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      });
+      const { unmount } = renderApp(makeSdk(viewer), api, makeAuthorAdo());
+
+      expect(await screen.findByText("Rev One")).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /cancel round/i })
+      ).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("hides Cancel round once the round is no longer open", async () => {
+    // Terminal rounds can't be cancelled — for the author the compose form
+    // replaces the view entirely, and it carries no cancel control. GREEN
+    // BEFORE THE IMPLEMENTATION — kept as the guard that the control never
+    // leaks past `open`.
+    const api = makeApiP4({
+      getCurrentRound: vi
+        .fn()
+        .mockResolvedValue(
+          makeRound({ status: "closed", closedAt: "2026-07-25T02:00:00.000Z" })
+        ),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    await screen.findByRole("button", { name: /ready for review/i });
+    expect(
+      screen.queryByRole("button", { name: /cancel round/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens a confirmation dialog without cancelling anything", async () => {
+    const cancelRound = vi.fn();
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      cancelRound,
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel round/i })
+    );
+
+    // A silent abandonment is never one misclick away.
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(cancelRound).not.toHaveBeenCalled();
+  });
+
+  it("dismisses the confirmation without cancelling", async () => {
+    const cancelRound = vi.fn();
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+      cancelRound,
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel round/i })
+    );
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: /keep round/i })
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    );
+    expect(cancelRound).not.toHaveBeenCalled();
+    // The round is still open and untouched.
+    expect(screen.getByText(/1 of 2 reviewed/i)).toBeInTheDocument();
+  });
+
+  it("calls cancelRound — and nothing that could close the round — on confirm", async () => {
+    const cancelled = makeRound({
+      status: "cancelled",
+      cancelledAt: "2026-07-25T03:00:00.000Z",
+    });
+    const cancelRound = vi.fn().mockResolvedValue(cancelled);
+    const toggleDone = vi.fn();
+    const openRound = vi.fn();
+    const api = makeApiP4({
+      getCurrentRound: vi
+        .fn()
+        .mockResolvedValueOnce(makeRound())
+        .mockResolvedValue(cancelled),
+      cancelRound,
+      toggleDone,
+      openRound,
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel round/i })
+    );
+    confirmCancel(await screen.findByRole("dialog"));
+
+    await waitFor(() => expect(cancelRound).toHaveBeenCalledWith(PR_KEY, 2));
+    // Cancel is a silent abandonment: it routes through the cancel
+    // endpoint alone, never a close-producing call.
+    expect(toggleDone).not.toHaveBeenCalled();
+    expect(openRound).not.toHaveBeenCalled();
+  });
+
+  it("reflects the cancelled round and offers the author round N+1", async () => {
+    const cancelled = makeRound({
+      status: "cancelled",
+      cancelledAt: "2026-07-25T03:00:00.000Z",
+    });
+    const api = makeApiP4({
+      getCurrentRound: vi
+        .fn()
+        .mockResolvedValueOnce(makeRound()) // open, before the cancel
+        .mockResolvedValue(cancelled), // terminal, after it
+      cancelRound: vi.fn().mockResolvedValue(cancelled),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel round/i })
+    );
+    confirmCancel(await screen.findByRole("dialog"));
+
+    // The cancelled round is terminal, so the author can immediately
+    // compose the next one — pre-filled for round 3, same phase.
+    expect(
+      await screen.findByRole("button", { name: /ready for review/i })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue("Round 3 — Implementation Review")
+    ).toBeInTheDocument();
+  });
+
+  it("shows an inline message and leaves the round open when the cancel fails", async () => {
+    const getCurrentRound = vi.fn().mockResolvedValue(makeRound());
+    const api = makeApiP4({
+      getCurrentRound,
+      cancelRound: vi.fn().mockRejectedValue(new ApiError(500, null)),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel round/i })
+    );
+    confirmCancel(await screen.findByRole("dialog"));
+
+    expect(
+      await screen.findByText(/couldn't|could not|failed|try again|went wrong/i)
+    ).toBeInTheDocument();
+    // The round survives a failed cancel, and no drift re-fetch fires.
+    expect(screen.getByText(/1 of 2 reviewed/i)).toBeInTheDocument();
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+  });
+
+  it("self-heals via a re-fetch when cancelRound drifts (409 ROUND_NOT_OPEN)", async () => {
+    // Someone met quorum first: the round closed before the cancel landed.
+    const healed = makeRound({
+      status: "closed",
+      closedAt: "2026-07-25T02:00:00.000Z",
+      reviewers: [
+        makeReviewer(REVIEWER_ONE_ID, "Rev One", true),
+        makeReviewer(REVIEWER_TWO_ID, "Rev Two", true),
+      ],
+    });
+    const getCurrentRound = vi
+      .fn()
+      .mockResolvedValueOnce(makeRound())
+      .mockResolvedValue(healed);
+    const api = makeApiP4({
+      getCurrentRound,
+      cancelRound: vi
+        .fn()
+        .mockRejectedValue(new ApiError(409, "ROUND_NOT_OPEN")),
+    });
+    renderApp(makeSdk(AUTHOR_ID), api, makeAuthorAdo());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel round/i })
+    );
+    confirmCancel(await screen.findByRole("dialog"));
+
+    // The drift maps to a re-fetch that reconciles the client to the true,
+    // closed state — which for the author is the compose form for round 3.
+    await waitFor(() => expect(getCurrentRound).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole("button", { name: /ready for review/i })
+    ).toBeInTheDocument();
   });
 });
