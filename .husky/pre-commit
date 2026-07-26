@@ -1,3 +1,10 @@
 npx lint-staged
+
+# Scoped to the extension because `packages/api` still carries 40 findings
+# from the day the linter started working (recorded on issue #14, tracked
+# in its own round-lifecycle issue). Drop the --workspace flag once that
+# one closes, so the hook covers every package.
+npm run lint --workspace @prsync/extension
+
 npm run typecheck
 npm run test
