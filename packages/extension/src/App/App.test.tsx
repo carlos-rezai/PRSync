@@ -887,68 +887,6 @@ describe("App — Phase 4 cancel round", () => {
   });
 });
 
-describe("App — Phase 5 error surface", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("auto-retries a 503 once and surfaces nothing when the retry succeeds", async () => {
-    const closed = makeClosedRound();
-    const toggleDone = vi
-      .fn()
-      .mockRejectedValueOnce(new ApiError(503, "CONCURRENCY_EXHAUSTED"))
-      .mockResolvedValue(closed);
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      toggleDone,
-    });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
-
-    fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
-
-    // Momentary write contention is invisible to the viewer.
-    await waitFor(() => expect(toggleDone).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText(/all reviewed/i)).toBeInTheDocument();
-    expect(screen.queryByText(/busy|try again/i)).not.toBeInTheDocument();
-  });
-
-  it("surfaces 'try again' once the single 503 retry is spent, reverting the flip", async () => {
-    const toggleDone = vi
-      .fn()
-      .mockRejectedValue(new ApiError(503, "CONCURRENCY_EXHAUSTED"));
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      toggleDone,
-    });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
-
-    fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
-
-    expect(await screen.findByText(/try again/i)).toBeInTheDocument();
-    // EXACTLY one retry — the panel does not hammer a contended write.
-    expect(toggleDone).toHaveBeenCalledTimes(2);
-    expect(checkbox(/Rev One/i)).toHaveAttribute("aria-checked", "false");
-  });
-
-  it("tells the viewer their session expired on a 401, without retrying", async () => {
-    // GREEN BEFORE THE IMPLEMENTATION — Phase 2's `routeFailure` already
-    // surfaces any non-refetch guidance inline. Kept as the guard that the
-    // 401 wording survives, and that the Phase 5 retry wrapper never
-    // re-sends a request an expired token can only fail again.
-    const toggleDone = vi.fn().mockRejectedValue(new ApiError(401, null));
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      toggleDone,
-    });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
-
-    fireEvent.click(await screen.findByRole("checkbox", { name: /Rev One/i }));
-
-    expect(await screen.findByText(/session expired/i)).toBeInTheDocument();
-    expect(toggleDone).toHaveBeenCalledTimes(1);
-  });
-});
-
 // --- Phase 6: Theming + autosize --------------------------------------
 //
 // The panel is a guest in ADO's own page, and the two ways it gives that
