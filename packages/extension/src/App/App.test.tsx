@@ -76,6 +76,9 @@ function makeRound(overrides: Partial<Round> = {}): Round {
 // --- injected client fakes -------------------------------------------
 
 function makeSdk(viewerAdoId: string): SdkClient {
+  // Cast because Phase 6 (issue #13) adds `resize` to the seam — the host's
+  // "size the frame to my content" call. Drop the cast once `SdkClient`
+  // declares it.
   return {
     getUser: () => ({ id: viewerAdoId, displayName: "Viewer" }),
     prKeyParts: () => ({
@@ -84,7 +87,8 @@ function makeSdk(viewerAdoId: string): SdkClient {
       pullRequestId: 42,
     }),
     getAccessToken: vi.fn().mockResolvedValue("fake-token"),
-  };
+    resize: vi.fn(),
+  } as SdkClient;
 }
 
 function makeApi(getCurrentRound: ApiClient["getCurrentRound"]): ApiClient {
@@ -1653,5 +1657,144 @@ describe("App — Phase 5 error surface", () => {
 
     expect(await screen.findByText(/session expired/i)).toBeInTheDocument();
     expect(toggleDone).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Phase 6: Theming + autosize --------------------------------------
+//
+// The panel is a guest in ADO's own page, and the two ways it gives that
+// away are its height and its colours.
+//
+// Height: an ADO extension renders in an iframe the HOST sizes. Nothing the
+// panel draws changes that height on its own, so a panel that never asks is
+// clipped the moment it grows — a refresh banner appearing, a compose form
+// replacing a cancelled round — and leaves dead space when it shrinks. What
+// the App owes is to ask the host to re-measure whenever what it renders
+// changes.
+//
+// Colours: the host cascades its light/dark palette into the frame (the
+// opt-in itself lives in the `sdk/` seam — see src/sdk/initPanel). A
+// literal colour anywhere in the panel survives that cascade and is exactly
+// what strands a white card in a dark ADO.
+//
+// Issue #13 / PRD #7 Phase 6. Terminology: docs/ubiquitous-language.md.
+
+/** The seam's "size me to my content" spy on an injected `sdk` fake. */
+function resizeSpy(sdk: SdkClient): ReturnType<typeof vi.fn> {
+  return (sdk as unknown as { resize: ReturnType<typeof vi.fn> }).resize;
+}
+
+describe("App — Phase 6 autosize", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sizes the frame to its content once the round renders", async () => {
+    const sdk = makeSdk(REVIEWER_ONE_ID);
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+    });
+    renderApp(sdk, api, makeAuthorAdo());
+
+    // The spinner and the settled round are different heights, so the host
+    // has to be told once the real content is on screen.
+    await screen.findByText("Rev One");
+    await waitFor(() => expect(resizeSpy(sdk)).toHaveBeenCalled());
+  });
+
+  it("re-sizes when a mutation swaps the view under the viewer", async () => {
+    const cancelled = makeRound({
+      status: "cancelled",
+      cancelledAt: "2026-07-25T03:00:00.000Z",
+    });
+    const sdk = makeSdk(AUTHOR_ID);
+    const api = makeApiP4({
+      getCurrentRound: vi
+        .fn()
+        .mockResolvedValueOnce(makeRound())
+        .mockResolvedValue(cancelled),
+      cancelRound: vi.fn().mockResolvedValue(cancelled),
+    });
+    renderApp(sdk, api, makeAuthorAdo());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: /cancel round/i })
+    );
+    await waitFor(() => expect(resizeSpy(sdk)).toHaveBeenCalled());
+    const sizedForTheRound = resizeSpy(sdk).mock.calls.length;
+
+    confirmCancel(await screen.findByRole("dialog"));
+
+    // The reviewer list gives way to the compose form — a different height
+    // the host cannot discover for itself.
+    await screen.findByRole("button", { name: /ready for review/i });
+    await waitFor(() =>
+      expect(resizeSpy(sdk).mock.calls.length).toBeGreaterThan(sizedForTheRound)
+    );
+  });
+});
+
+describe("App — Phase 6 autosize on drift", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    setTabVisibility("visible");
+  });
+
+  it("re-sizes when the refresh banner appears", async () => {
+    const drifted = makeRound({ label: "Round 2 — Renamed by the author" });
+    const sdk = makeSdk(REVIEWER_ONE_ID);
+    const api = makeApiP4({
+      getCurrentRound: vi
+        .fn()
+        .mockImplementationOnce(async () => makeRound())
+        .mockImplementation(async () => drifted),
+    });
+    renderApp(sdk, api, makeAuthorAdo());
+    await flush();
+
+    const sizedForTheRound = resizeSpy(sdk).mock.calls.length;
+    await tickPoll();
+
+    // The banner is a whole extra row appearing below the panel; without a
+    // re-measure the host frame clips it, which is precisely the row the
+    // viewer has to click.
+    expect(refreshBanner()).not.toBeNull();
+    expect(resizeSpy(sdk).mock.calls.length).toBeGreaterThan(sizedForTheRound);
+  });
+});
+
+describe("App — Phase 6 theming", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("hardcodes no colour of its own, so the host's theme governs the panel", async () => {
+    const sdk = makeSdk(REVIEWER_ONE_ID);
+    const api = makeApiP4({
+      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
+    });
+    const { container } = renderApp(sdk, api, makeAuthorAdo());
+    await screen.findByText("Rev One");
+
+    // Scoped to the panel's OWN markup (`prsync-` classes): `azure-devops-ui`
+    // computes its avatar colours inline by design, and those are the design
+    // system's business, not ours.
+    //
+    // GREEN BEFORE THE IMPLEMENTATION — nothing of ours hardcodes a colour
+    // today. Kept as the guard that Phase 6's theming can't be quietly
+    // undone by an inline style, which no light/dark cascade can override.
+    const styled = Array.from(
+      container.querySelectorAll<HTMLElement>('[style][class*="prsync-"]')
+    );
+    for (const element of styled) {
+      expect(element.getAttribute("style") ?? "").not.toMatch(
+        /(?:^|;)\s*(?:color|background|background-color|border-color)\s*:\s*(?:#|rgb|hsl|white\b|black\b)/i
+      );
+    }
   });
 });
