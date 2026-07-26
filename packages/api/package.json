@@ -9,7 +9,7 @@
     "watch": "tsc -w -p tsconfig.json",
     "start": "func start",
     "test": "vitest run --passWithNoTests",
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
