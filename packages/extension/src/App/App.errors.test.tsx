@@ -71,10 +71,9 @@ describe("App — error recovery routing and the single retry", () => {
   });
 
   it("tells the viewer their session expired on a 401, without retrying", async () => {
-    // GREEN BEFORE THE IMPLEMENTATION — Phase 2's `routeFailure` already
-    // surfaces any non-refetch guidance inline. Kept as the guard that the
-    // 401 wording survives, and that the Phase 5 retry wrapper never
-    // re-sends a request an expired token can only fail again.
+    // Two guards in one: that the session-expired wording survives, and
+    // that the retry wrapper never re-sends a request an expired token can
+    // only fail again.
     const toggleDone = vi.fn().mockRejectedValue(new ApiError(401, null));
     const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(makeRound()),

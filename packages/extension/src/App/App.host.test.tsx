@@ -132,9 +132,10 @@ describe("App — deferring to the host theme", () => {
     // computes its avatar colours inline by design, and those are the design
     // system's business, not ours.
     //
-    // GREEN BEFORE THE IMPLEMENTATION — nothing of ours hardcodes a colour
-    // today. Kept as the guard that Phase 6's theming can't be quietly
-    // undone by an inline style, which no light/dark cascade can override.
+    // Nothing of ours hardcodes a colour today; this is the guard that it
+    // stays that way. An inline style is the one thing no light/dark
+    // cascade can override, so it is the one way theming gets quietly
+    // undone.
     const styled = Array.from(
       container.querySelectorAll<HTMLElement>('[style][class*="prsync-"]')
     );

@@ -26,8 +26,6 @@ import viteConfig from "../../vite.config";
 // package is caught in the suite rather than at install time. That
 // `npm run package` itself emits a clean `.vsix` is verified by running it
 // (AC 3) — a test would only re-implement `tfx`.
-//
-// Issue #13 / PRD #7 Phase 6.
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -69,9 +67,9 @@ describe("extension packaging", () => {
   });
 
   it("contributes the panel as a PR-detail tab", () => {
-    // GREEN BEFORE THE IMPLEMENTATION — the contribution has been in place
-    // since Phase 1. Kept as the guard that the packaging changes below
-    // never disturb where the panel actually appears.
+    // The guard on WHERE the panel appears. Everything else in this file
+    // is about shipping the right files; this is the one assertion that
+    // the thing being shipped still attaches to the PR page.
     const tab = manifest.contributions.find(
       (contribution) => contribution.id === "prsync-pr-panel"
     );

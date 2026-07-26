@@ -13,50 +13,30 @@ import {
   RoundView,
 } from "../components";
 
-// The panel container. It owns the load state machine and the Phase 2
-// Done-toggle interaction, wiring the three injected clients (`sdk` /
-// `api` / `ado`) into the views. Dependency injection is the testing
-// seam — tests pass fakes; boot passes the real host-backed clients (see
-// index.tsx).
+// The panel container: derive the viewer, choose the body, pass props.
 //
-// Load sequence (PRD #7 "Load sequence"):
-//   getCurrentRound → 200 → derive the whole view from the round; NO ADO
-//                           call.
-//                   → 204 → one ADO `createdBy` read decides author
-//                           (compose placeholder) vs. bystander (ZeroData).
+// Everything about WHEN the panel reads, what it applies and what it does
+// with a failure lives in `usePanelState` (the `hooks/` layer); everything
+// about how a control looks and what it calls up lives in `components/`.
+// What is left here is the choice between the four bodies, which is the
+// one decision that needs both a round and a viewer to make.
 //
-// Done toggle (PRD #7 "Done toggle"): a reviewer flips their OWN row
-// optimistically, `toggleDone` PATCHes, then the returned `Round` REPLACES
-// panel state (authoritative — surfaces an auto-close the moment quorum is
-// met). A generic failure reverts the flip with an inline message; a
-// drift-class 409/403 maps (via `mapApiError`) to a re-fetch that
-// self-heals the client to the true state.
+// Dependency injection is the testing seam — tests pass fakes, boot passes
+// the real host-backed clients (see index.tsx). The container takes all
+// three clients only to hand them to the hook.
 //
-// Ready for review (PRD #7 "Compose defaults"): when no round is open, the
-// author gets the compose form instead of the read-only view. Clicking
-// reads ADO's live PR AFRESH — the reviewer list is snapshotted at that
-// instant, never from the load-time read — and only then calls
-// `openRound`; the returned `Round` replaces panel state. A `422`
-// `INSUFFICIENT_REVIEWERS` surfaces inline as the server-owned backstop to
-// the client's `hasEligibleReviewers` gate.
-
-// Label edit / Cancel round (PRD #7 Phase 4): the author's two management
-// actions on an open round. `editLabel` sends the author's exact text and
-// the returned `Round` replaces panel state (the API's stored wording
-// wins). `cancelRound` silently abandons the round — reached only through
-// a confirmation dialog — and the resulting terminal round hands the
-// author straight to the compose form for round N+1. Both reuse the
-// toggle's failure contract through `routeFailure`.
-
-// Polling + drift (PRD #7 "Polling" / "Drift detection"): review is live
-// team activity, so a ~20s poll re-reads the current round and compares a
-// `roundFingerprint` against the viewer's BASELINE — the last
-// authoritative state they saw or acted on (`commit`). A divergence is
-// someone ELSE's change: it raises the refresh banner and nothing more,
-// because the panel never live-patches state under a cursor. Clicking the
-// banner is the only path that updates a drifted panel. The viewer's own
-// mutations commit their result, which resets the baseline, so they can
-// never raise the banner at themselves.
+// The body is chosen in this order, and the order is the rule:
+//   loading / error   → the panel has no round to talk about yet
+//   author, no round  → the compose form REPLACES the read-only view
+//   no round at all   → the bystander empty state
+//   no reviewers      → the other empty state
+//   otherwise         → the round itself
+//
+// The refresh banner sits deliberately OUTSIDE that choice: drift can be
+// raised over any settled view, and the layout spec puts the banner last
+// (row 8), below whatever the viewer is reading.
+//
+// Terminology: docs/ubiquitous-language.md.
 
 interface AppProps {
   sdk: SdkClient;

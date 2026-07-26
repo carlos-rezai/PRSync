@@ -14,7 +14,7 @@ import type { Round, RoundReviewer } from "../types/types";
 //
 // These tests pin the CONTRACT, never the digest format — they only ever
 // compare two fingerprints to each other, so the implementation is free to
-// change how it encodes them. Issue #12 / PRD #7 Phase 5. Terminology:
+// change how it encodes them. Terminology:
 // docs/ubiquitous-language.md.
 
 const PR_KEY =

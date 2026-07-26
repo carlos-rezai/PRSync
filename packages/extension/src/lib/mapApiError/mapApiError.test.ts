@@ -47,12 +47,13 @@ describe("mapApiError — {status, code} → recovery guidance", () => {
   });
 });
 
-// Issue #12 / PRD #7 Phase 5 completes the table. Phases 1–4 wired the
-// entries each of their own mutations could hit; these fill the remaining
-// {status, code} pairs so every branch is pinned, and tighten the `503`
-// wording: the App auto-retries a `503` ONCE, so the message a viewer
-// actually reads is the post-retry one and must tell them to try again
-// themselves — not promise a retry that has already been spent.
+// The remaining {status, code} pairs, so every branch of the table is
+// pinned rather than only the ones a mutation happens to reach today.
+//
+// The `503` wording is the one with a trap in it: the panel auto-retries a
+// `503` exactly once, so the message a viewer actually READS is the
+// post-retry one. It has to tell them to try again themselves, not promise
+// a retry that has already been spent.
 
 describe("mapApiError — the rest of the table", () => {
   it("maps a 401 with no service code to a session-expired reload", () => {
