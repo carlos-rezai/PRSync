@@ -87,6 +87,49 @@ describe("App — polling cadence and its suspension rules", () => {
     expect(getCurrentRound).toHaveBeenCalledTimes(2);
   });
 
+  it("never polls while the panel has not settled", async () => {
+    // The third suspension rule. A panel whose load FAILED has no baseline
+    // to compare a poll against, so polling it would spend requests on a
+    // comparison that cannot mean anything — and the viewer staring at the
+    // load error is told to refresh the page, not waited on.
+    const getCurrentRound = vi
+      .fn()
+      .mockRejectedValue(new Error("network down"));
+    renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApi({ getCurrentRound }),
+      makeAdo()
+    );
+    await flush();
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+
+    await tickPoll(3);
+
+    expect(getCurrentRound).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops polling once the panel is unmounted", async () => {
+    // ADO tears the tab down when the viewer navigates away. An interval
+    // that outlives the panel keeps calling the API for a page nobody is
+    // looking at.
+    const getCurrentRound = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(makeRound()));
+    const { unmount } = renderApp(
+      makeSdk(REVIEWER_ONE_ID),
+      makeApi({ getCurrentRound }),
+      makeAdo()
+    );
+    await flush();
+    await tickPoll();
+    expect(getCurrentRound).toHaveBeenCalledTimes(2);
+
+    unmount();
+    await tickPoll(3);
+
+    expect(getCurrentRound).toHaveBeenCalledTimes(2);
+  });
+
   it("stops polling while the viewer's own mutation is in flight", async () => {
     // A deferred toggle holds the mutation open across a poll interval: a
     // poll landing here would clobber the optimistic flip.
