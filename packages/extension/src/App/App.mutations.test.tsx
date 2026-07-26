@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { screen, waitFor, fireEvent } from "@testing-library/react";
 import { ApiError } from "../api";
 import type { Round } from "../lib";
 import {
   AUTHOR_ID,
-  CLOSED_AT,
   PR_KEY,
   REVIEWER_ONE_ID,
   STRANGER_ID,
@@ -56,44 +55,15 @@ import {
 // Driven entirely through injected `sdk` / `api` / `ado` fakes (design log
 // 02, Q14). Assertions are on which client was called, with what, in what
 // order, and what the panel did with the result — never on component
-// internals. PRD #7 "Done toggle" / "Compose defaults". Terminology:
-// docs/ubiquitous-language.md.
+// internals — which of the three gets called, with what, in what order,
+// and what the panel did with the result. Which controls a given role SEES
+// is a composition rule and belongs to `RoundView`'s test; how a control
+// renders what it was handed belongs to that component's. PRD #7 "Done
+// toggle" / "Compose defaults". Terminology: docs/ubiquitous-language.md.
 
 describe("App — a reviewer signalling Done", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("makes only the reviewer's own row interactive while the round is open", async () => {
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      toggleDone: vi.fn(),
-    });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
-
-    // The viewer's own row is interactive; the other reviewer's is not.
-    const own = await screen.findByRole("checkbox", { name: /Rev One/i });
-    expect(own).toHaveAttribute("aria-disabled", "false");
-    expect(checkbox(/Rev Two/i)).toHaveAttribute("aria-disabled", "true");
-
-    // Clicking someone else's row can never signal Done on their behalf.
-    fireEvent.click(checkbox(/Rev Two/i));
-    expect(api.toggleDone).not.toHaveBeenCalled();
-  });
-
-  it("shows the author and the bystander every Done checkbox read-only", async () => {
-    for (const viewer of [AUTHOR_ID, STRANGER_ID]) {
-      const api = makeApi({
-        getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-        toggleDone: vi.fn(),
-      });
-      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo());
-
-      const one = await screen.findByRole("checkbox", { name: /Rev One/i });
-      expect(one).toHaveAttribute("aria-disabled", "true");
-      expect(checkbox(/Rev Two/i)).toHaveAttribute("aria-disabled", "true");
-      unmount();
-    }
   });
 
   it("flips optimistically, calls toggleDone, then reconciles to the returned round", async () => {
@@ -153,21 +123,6 @@ describe("App — a reviewer signalling Done", () => {
     expect(getCurrentRound).toHaveBeenCalledTimes(1);
   });
 
-  it("freezes the reviewer's own checkbox once the round is closed", async () => {
-    const toggleDone = vi.fn();
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeClosedRound()),
-      toggleDone,
-    });
-    renderApp(makeSdk(REVIEWER_ONE_ID), api, makeAdo());
-
-    const own = await screen.findByRole("checkbox", { name: /Rev One/i });
-    expect(own).toHaveAttribute("aria-disabled", "true");
-
-    fireEvent.click(own);
-    expect(toggleDone).not.toHaveBeenCalled();
-  });
-
   it.each([
     [409, "ROUND_NOT_OPEN"],
     [403, "NOT_A_REVIEWER"],
@@ -210,16 +165,9 @@ describe("App — the author opening the next round", () => {
     const ado = makeAdo(); // the viewer created the PR
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
-    // Both phase options and the primary action are present and enabled.
-    const ready = await screen.findByRole("button", {
-      name: /ready for review/i,
-    });
-    expect(ready).not.toHaveAttribute("aria-disabled", "true");
+    // A 204 plus an author is the one combination that composes.
     expect(
-      screen.getByRole("button", { name: /use case review/i })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /implementation review/i })
+      await screen.findByRole("button", { name: /ready for review/i })
     ).toBeInTheDocument();
   });
 
@@ -375,24 +323,6 @@ describe("App — the author opening the next round", () => {
     expect(api.openRound.mock.calls[0]?.[1].phase).toBe("implementation");
   });
 
-  it("flips the phase sent when the author toggles to Implementation Review", async () => {
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(null), // 204 → default spec
-      openRound: vi.fn().mockResolvedValue(makeRound()),
-    });
-    const ado = makeAdo();
-    renderApp(makeSdk(AUTHOR_ID), api, ado);
-
-    await screen.findByRole("button", { name: /ready for review/i });
-    fireEvent.click(
-      screen.getByRole("button", { name: /implementation review/i })
-    );
-    fireEvent.click(readyButton());
-
-    await waitFor(() => expect(api.openRound).toHaveBeenCalledTimes(1));
-    expect(api.openRound.mock.calls[0]?.[1].phase).toBe("implementation");
-  });
-
   it("disables Ready with a hint when the snapshot has zero eligible reviewers", async () => {
     const api = makeApi({
       getCurrentRound: vi.fn().mockResolvedValue(null),
@@ -413,13 +343,13 @@ describe("App — the author opening the next round", () => {
     );
     renderApp(makeSdk(AUTHOR_ID), api, ado);
 
+    // The App gates the form on `hasEligibleReviewers` over the LIVE PR;
+    // how the form renders that gate is ComposeForm's own test.
     const ready = await screen.findByRole("button", {
       name: /ready for review/i,
     });
     expect(ready).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText(/eligible reviewer/i)).toBeInTheDocument();
 
-    // A disabled primary action can never fire the open call.
     fireEvent.click(ready);
     expect(api.openRound).not.toHaveBeenCalled();
   });
@@ -475,49 +405,6 @@ describe("App — the author renaming an open round", () => {
     vi.clearAllMocks();
   });
 
-  it("makes the label editable for the author alone on an open round", async () => {
-    // Both sides of the gate in one test: the author gets a field holding
-    // the stored label; a reviewer and a bystander get read-only text.
-    const authorApi = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-    });
-    const authorView = renderApp(makeSdk(AUTHOR_ID), authorApi, makeAdo());
-
-    expect(await screen.findByRole("textbox")).toHaveValue(
-      "Round 2 — Implementation Review"
-    );
-    authorView.unmount();
-
-    for (const viewer of [REVIEWER_ONE_ID, STRANGER_ID]) {
-      const api = makeApi({
-        getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      });
-      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo());
-
-      expect(
-        await screen.findByText("Round 2 — Implementation Review")
-      ).toBeInTheDocument();
-      expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-      unmount();
-    }
-  });
-
-  it("shows the label as read-only text once the round is no longer open", async () => {
-    // A terminal round can't be renamed by anyone. The author's view of a
-    // terminal round is the compose form, so a bystander is the viewer that
-    // still renders the round itself. GREEN BEFORE THE IMPLEMENTATION —
-    // kept as the guard that the edit field never leaks past `open`.
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeCancelledRound()),
-    });
-    renderApp(makeSdk(STRANGER_ID), api, makeAdo());
-
-    expect(
-      await screen.findByText("Round 2 — Implementation Review")
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  });
-
   it("commits the exact edited text on blur", async () => {
     const editLabel = vi.fn().mockResolvedValue(makeRound());
     const api = makeApi({
@@ -541,39 +428,6 @@ describe("App — the author renaming an open round", () => {
         "Round 2 — Please re-read the spec"
       )
     );
-  });
-
-  it("commits the exact edited text on Enter", async () => {
-    const editLabel = vi.fn().mockResolvedValue(makeRound());
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      editLabel,
-    });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
-
-    const field = await screen.findByRole("textbox");
-    fireEvent.change(field, { target: { value: "Round 2 — Second pass" } });
-    fireEvent.keyDown(field, { key: "Enter" });
-
-    await waitFor(() =>
-      expect(editLabel).toHaveBeenCalledWith(PR_KEY, 2, "Round 2 — Second pass")
-    );
-  });
-
-  it("does not call editLabel when the author commits an unchanged label", async () => {
-    const editLabel = vi.fn();
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      editLabel,
-    });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
-
-    // Focusing and leaving the field without typing is not an edit.
-    const field = await screen.findByRole("textbox");
-    fireEvent.blur(field);
-    fireEvent.keyDown(field, { key: "Enter" });
-
-    expect(editLabel).not.toHaveBeenCalled();
   });
 
   it("replaces panel state with the round editLabel returns", async () => {
@@ -651,94 +505,6 @@ describe("App — the author renaming an open round", () => {
 describe("App — the author cancelling an open round", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("shows Cancel round to the author alone on an open round", async () => {
-    // Both sides of the gate in one test: the author gets the control, a
-    // reviewer and a bystander never do.
-    const authorApi = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-    });
-    const authorView = renderApp(makeSdk(AUTHOR_ID), authorApi, makeAdo());
-
-    expect(
-      await screen.findByRole("button", { name: /cancel round/i })
-    ).toBeInTheDocument();
-    authorView.unmount();
-
-    for (const viewer of [REVIEWER_ONE_ID, STRANGER_ID]) {
-      const api = makeApi({
-        getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      });
-      const { unmount } = renderApp(makeSdk(viewer), api, makeAdo());
-
-      expect(await screen.findByText("Rev One")).toBeInTheDocument();
-      expect(
-        screen.queryByRole("button", { name: /cancel round/i })
-      ).not.toBeInTheDocument();
-      unmount();
-    }
-  });
-
-  it("hides Cancel round once the round is no longer open", async () => {
-    // Terminal rounds can't be cancelled — for the author the compose form
-    // replaces the view entirely, and it carries no cancel control. GREEN
-    // BEFORE THE IMPLEMENTATION — kept as the guard that the control never
-    // leaks past `open`.
-    const api = makeApi({
-      getCurrentRound: vi
-        .fn()
-        .mockResolvedValue(
-          makeRound({ status: "closed", closedAt: CLOSED_AT })
-        ),
-    });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
-
-    await screen.findByRole("button", { name: /ready for review/i });
-    expect(
-      screen.queryByRole("button", { name: /cancel round/i })
-    ).not.toBeInTheDocument();
-  });
-
-  it("opens a confirmation dialog without cancelling anything", async () => {
-    const cancelRound = vi.fn();
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      cancelRound,
-    });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: /cancel round/i })
-    );
-
-    // A silent abandonment is never one misclick away.
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(cancelRound).not.toHaveBeenCalled();
-  });
-
-  it("dismisses the confirmation without cancelling", async () => {
-    const cancelRound = vi.fn();
-    const api = makeApi({
-      getCurrentRound: vi.fn().mockResolvedValue(makeRound()),
-      cancelRound,
-    });
-    renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: /cancel round/i })
-    );
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(
-      within(dialog).getByRole("button", { name: /keep round/i })
-    );
-
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
-    );
-    expect(cancelRound).not.toHaveBeenCalled();
-    // The round is still open and untouched.
-    expect(screen.getByText(/1 of 2 reviewed/i)).toBeInTheDocument();
   });
 
   it("calls cancelRound — and nothing that could close the round — on confirm", async () => {
