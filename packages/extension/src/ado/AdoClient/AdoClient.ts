@@ -3,10 +3,16 @@ import { GitRestClient } from "azure-devops-extension-api/Git";
 import type { PrKeyParts } from "../../lib";
 
 // The `ado/` layer: reads Azure DevOps's OWN PR REST API via the typed
-// `GitRestClient` (never a hand-rolled fetch). In Phase 1 it is consulted
-// at exactly one moment — a `204` (no round), to read the PR's
-// `createdBy` and decide author vs. bystander. Later phases reuse it for
-// the "Ready for review" reviewer snapshot.
+// `GitRestClient` (never a hand-rolled fetch).
+//
+// The panel consults it as little as possible, and the rule is worth
+// stating because the two reads mean different things. At LOAD it is read
+// only when a compose form may follow — no round at all, or a terminal
+// round the author could follow with the next one — and that read only
+// decides what to show. At the "Ready for review" CLICK it is read afresh,
+// and that read is the authoritative reviewer snapshot the round is opened
+// against. The first is never reused as the second: between them, the
+// reviewer list may have moved.
 
 /** A live ADO reviewer, mapped from `IdentityRefWithVote`. */
 export interface AdoReviewer {

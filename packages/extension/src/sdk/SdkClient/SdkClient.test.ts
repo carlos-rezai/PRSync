@@ -7,14 +7,13 @@ import { createSdkClient } from "./SdkClient";
 // system boundary — while every other layer drives the seam through an
 // injected fake (mocking.md: boundaries only).
 //
-// Phase 6 adds `resize` to the seam. An ADO extension renders in an iframe
-// the HOST sizes: nothing the panel draws changes that height on its own,
-// so a panel that never asks is clipped when it grows and leaves dead space
-// when it shrinks. The panel must ask the host to size the frame to what it
-// currently renders — measured by the host, never a height the panel
-// guesses at.
-//
-// Issue #13 / PRD #7 Phase 6.
+// The behaviour under test is `resize`. An ADO extension renders in an
+// iframe the HOST sizes: nothing the panel draws changes that height on
+// its own, so a panel that never asks is clipped when it grows and leaves
+// dead space when it shrinks. The panel must ask the host to size the
+// frame to what it currently renders — MEASURED by the host, never a
+// height the panel guesses at, which is why the call passes no
+// dimensions.
 
 vi.mock("azure-devops-extension-sdk", () => ({
   resize: vi.fn(),

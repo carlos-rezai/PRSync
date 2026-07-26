@@ -2,12 +2,18 @@ import { ApiError } from "../../lib";
 import type { Round } from "../../lib";
 import type { AdoReviewer } from "../../ado";
 
-// The PRSync API client. Phase 4 completes the round's write surface —
-// the Phase 1 current-round read, the Phase 2 own-row Done toggle, the
-// Phase 3 round-open, and the author's two management actions here. Every
-// call carries the caller's ADO bearer token, obtained via the injected
-// token getter, and rejects with an `ApiError` (status + service code) so
-// `mapApiError` can route the recovery.
+// The PRSync API client: one read and four writes over a PR's rounds.
+//
+// The contract every call keeps, regardless of which one it is — it
+// carries the caller's ADO bearer token from the injected token getter,
+// and it either resolves the authoritative `Round` the service returned or
+// rejects with an `ApiError` carrying the status and the service's machine
+// code, so `mapApiError` can decide the recovery from the pair.
+//
+// "Authoritative" is the load-bearing word. The panel never patches its
+// own copy of a round after a write; it replaces it with what came back,
+// which is how an auto-close reaches the viewer the instant their toggle
+// meets quorum.
 
 /**
  * The body of `POST /api/prs/{prKey}/rounds` — a snapshot of ADO's live

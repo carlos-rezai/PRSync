@@ -15,8 +15,6 @@ import { initPanel } from "./initPanel";
 // when the panel opts in at init; skipping the opt-in is exactly what
 // leaves a panel glaring white inside a dark ADO. The opt-in is therefore
 // not boot trivia — it is the whole of "the panel respects ADO's theme".
-//
-// Issue #13 / PRD #7 Phase 6.
 
 vi.mock("azure-devops-extension-sdk", () => ({
   init: vi.fn().mockResolvedValue(undefined),
