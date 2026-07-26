@@ -8,16 +8,14 @@
 
 import * as React from "react";
 import { createRoot } from "react-dom/client";
-import * as SDK from "azure-devops-extension-sdk";
 import "azure-devops-ui/Core/core.css";
-import { createSdkClient } from "./sdk";
+import { createSdkClient, initPanel } from "./sdk";
 import { createApiClient } from "./api";
 import { createAdoClient } from "./ado";
 import { App } from "./App/App";
 
 async function boot(): Promise<void> {
-  await SDK.init();
-  await SDK.ready();
+  await initPanel();
 
   const baseUrl: string | undefined = import.meta.env.VITE_API_BASE_URL;
   if (!baseUrl) {

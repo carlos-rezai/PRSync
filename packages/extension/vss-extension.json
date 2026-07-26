@@ -12,7 +12,7 @@
     }
   ],
   "icons": {
-    "default": "icon.png"
+    "default": "assets/icon-ado-128.png"
   },
   "contributions": [
     {
@@ -28,6 +28,10 @@
   "files": [
     {
       "path": "dist",
+      "addressable": true
+    },
+    {
+      "path": "assets/icon-ado-128.png",
       "addressable": true
     }
   ]

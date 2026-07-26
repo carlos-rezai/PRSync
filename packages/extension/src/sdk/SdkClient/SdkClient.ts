@@ -18,6 +18,13 @@ export interface SdkClient {
   prKeyParts(): PrKeyParts;
   /** The caller's ADO bearer token for authenticating PRSync API calls. */
   getAccessToken(): Promise<string>;
+  /**
+   * Asks the host to size the extension's iframe to what the panel
+   * currently renders. The HOST owns that height — nothing the panel draws
+   * changes it — so a panel that never asks is clipped when it grows and
+   * leaves dead space when it shrinks.
+   */
+  resize(): void;
 }
 
 // The contribution configuration ADO hands the PR-detail tab. Typed
@@ -53,6 +60,12 @@ export function createSdkClient(): SdkClient {
     },
     getAccessToken() {
       return SDK.getAccessToken();
+    },
+    resize() {
+      // No dimensions: passing them would pin the frame to a height the
+      // panel guessed at. Omitting them is what makes the host measure the
+      // content it is actually showing.
+      SDK.resize();
     },
   };
 }

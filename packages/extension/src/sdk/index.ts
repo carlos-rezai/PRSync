@@ -3,3 +3,4 @@
 // `azure-devops-extension-sdk` directly.
 
 export * from "./SdkClient/SdkClient";
+export * from "./initPanel/initPanel";

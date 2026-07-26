@@ -226,6 +226,18 @@ export function App({ sdk, api, ado }: AppProps): React.ReactElement {
     return () => window.clearInterval(timer);
   }, [poll]);
 
+  // Autosize (PRD #7 Phase 6): the panel lives in an iframe the HOST
+  // sizes, and nothing it draws changes that height on its own. Every
+  // render here IS a content change — the panel only re-renders when its
+  // state moves (a round settles, a mutation swaps the view, the refresh
+  // banner appears) — so asking the host to re-measure after each commit
+  // is both the complete answer and the only one that needs no guess at
+  // what the new height should be. Deliberately dependency-free: a list of
+  // "things that affect height" is a list that silently goes stale.
+  React.useEffect(() => {
+    sdk.resize();
+  });
+
   // The banner's action — the only path that updates a drifted panel.
   async function handleRefresh(): Promise<void> {
     try {
