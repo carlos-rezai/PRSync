@@ -21,32 +21,45 @@ import {
   readyButton,
 } from "../test/fixtures/panelDom";
 
-// Behavioural tests over the App container's load state machine, driven
-// entirely through injected `sdk` / `api` / `ado` fakes (the PRD's
-// testing seam — no SDK is mocked, no live ADO host is contacted). We
-// assert what the viewer SEES and which injected clients a load path
-// calls, never internal component structure or private state.
+// The four ways a viewer changes a round, and what the panel does with
+// each result. Every one of them shares a skeleton — clear the error slot,
+// mark a mutation in flight, run the call, apply the returned `Round` as
+// authoritative, route a failure through `mapApiError` — and differs only
+// in the middle.
 //
-// Load sequence (PRD #7 "Load sequence"):
-//   getCurrentRound → 200 → derive view from the round, NO ADO call
-//                   → 204 → one ADO createdBy read decides author vs.
-//                           bystander
-// Terminology: docs/ubiquitous-language.md.
-
-// --- Phase 2: Done toggle --------------------------------------------
+// Done toggle: a reviewer signals Done on their OWN row only. The click
+// flips optimistically, `toggleDone` PATCHes (carrying no reviewer id —
+// the API targets the authenticated caller), and the returned `Round`
+// REPLACES panel state, which is what surfaces an auto-close the instant
+// the toggle meets quorum. A failure reverts the flip.
 //
-// A reviewer signals Done on the open round from their OWN row only. The
-// click flips optimistically, calls `toggleDone` (carrying no reviewer id —
-// the API targets the authenticated caller), then REPLACES panel state with
-// the returned `Round` (authoritative — surfaces an auto-close the moment
-// the toggle meets quorum, freezing the whole list). On error the flip
-// reverts with an inline message; a drift-class 409/403 maps via
-// `mapApiError` to a re-fetch that self-heals the client. Every assertion is
-// through the injected `api` fake and the rendered checkboxes — never
-// component internals. Issue #9 / PRD #7 "Done toggle". Terminology:
+// Ready for review: the author opens the NEXT round with one click. The
+// compose form shows only for the author and only when no round is open (a
+// `204`, or a terminal round — the compose form REPLACES the read-only
+// view of a terminal round). Two ADO reads are in play, and which one
+// counts is the rule that matters: the load-time read only GATES the
+// button, while the snapshot handed to `openRound` is read afresh AT THE
+// CLICK, so a retry can never re-snapshot a reviewer list that moved.
+//
+// Label edit: commits on blur or Enter with the author's EXACT text; the
+// returned `Round` wins, so an API that normalises the wording is
+// authoritative. The typed text is already on screen, so there is nothing
+// optimistic to revert.
+//
+// Cancel round: reachable only through a confirmation dialog, because a
+// silent abandonment must never be one misclick away. The panel's share of
+// the "cancel is silent" contract is that this path goes through
+// `cancelRound` alone and never through a close-producing call. The
+// resulting terminal round hands the author straight to the compose form
+// for round N+1.
+//
+// Driven entirely through injected `sdk` / `api` / `ado` fakes (design log
+// 02, Q14). Assertions are on which client was called, with what, in what
+// order, and what the panel did with the result — never on component
+// internals. PRD #7 "Done toggle" / "Compose defaults". Terminology:
 // docs/ubiquitous-language.md.
 
-describe("App — Phase 2 Done toggle", () => {
+describe("App — a reviewer signalling Done", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -184,31 +197,7 @@ describe("App — Phase 2 Done toggle", () => {
   );
 });
 
-// --- Phase 3: Ready for review ---------------------------------------
-//
-// The author opens the NEXT round with one click. The compose form (phase
-// toggle + pre-filled label + primary "Ready for review") shows ONLY for
-// the author and ONLY when no round is open (a 204, or a terminal
-// closed/cancelled round — per the design decision, the compose form
-// REPLACES the read-only closed view for the author). Two ADO reads are in
-// play: one when the compose form is shown (to gate the button on eligible
-// reviewers), and a fresh authoritative one at the instant "Ready for
-// review" is clicked, whose reviewers/title/url are handed to `openRound`.
-//
-// Rules under test (issue #10 / PRD #7 Phase 3):
-//   - phase defaults to the previous round's phase, or `spec` when none;
-//   - clicking reads ADO live, THEN calls `openRound` with that snapshot;
-//   - the label default is derived — omitted when untouched, exact when
-//     edited (so the panel and DB never diverge on wording);
-//   - the button is disabled with a hint when the fresh snapshot has zero
-//     eligible individual reviewers besides the author;
-//   - a `422 INSUFFICIENT_REVIEWERS` maps to an inline validation message
-//     (the server-owned backstop).
-// Every assertion is through the injected `sdk`/`api`/`ado` fakes and the
-// rendered controls — never component internals. Terminology:
-// docs/ubiquitous-language.md.
-
-describe("App — Phase 3 Ready for review", () => {
+describe("App — the author opening the next round", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -255,8 +244,8 @@ describe("App — Phase 3 Ready for review", () => {
     });
     renderApp(makeSdk(AUTHOR_ID), api, makeAdo());
 
-    // The open round renders (for the author the label is the Phase 4
-    // edit field); a second round can't be opened concurrently.
+    // The open round renders (for the author the label is an edit
+    // field); a second round can't be opened concurrently.
     expect(
       await screen.findByDisplayValue("Round 2 — Implementation Review")
     ).toBeInTheDocument();
@@ -473,7 +462,7 @@ describe("App — Phase 3 Ready for review", () => {
     );
 
     // The returned Round replaces panel state — the new open round renders,
-    // with its label in the author's Phase 4 edit field.
+    // with its label in the author's edit field.
     expect(
       await screen.findByDisplayValue("Round 2 — Implementation Review")
     ).toBeInTheDocument();
@@ -481,35 +470,7 @@ describe("App — Phase 3 Ready for review", () => {
   });
 });
 
-// --- Phase 4: Label edit + Cancel round -------------------------------
-//
-// The author's two management actions on an OPEN round.
-//
-// Label edit: the round label is an inline-editable `TextField` for the
-// author while the round is `open`, display-only for everyone else. The
-// edit commits on blur OR Enter and calls `editLabel` with the EXACT text
-// the author typed; the returned `Round` replaces panel state (so an API
-// that normalises the wording wins). The typed text is already on screen,
-// so there is no optimistic write to revert — a failure surfaces inline
-// and leaves the round untouched.
-//
-// Cancel round: a danger `Button` shown only to the author and only while
-// `open`. It opens a "Cancel round?" confirmation `Dialog` — the endpoint
-// is NOT reachable by a single misclick — and only confirming calls
-// `cancelRound`. Cancelling is a SILENT abandonment: the panel's share of
-// that contract is that this path goes through `cancelRound` alone and
-// never through a close-producing call (the notification silence itself is
-// Feature 1's, already covered in packages/api). Once cancelled the round
-// is terminal, so the author immediately gets the compose form for round
-// N+1 — the full open → cancelled → open cycle from the panel.
-//
-// Both mutations reuse the Phase 2 error contract: a generic failure shows
-// an inline message and leaves panel state intact; a drift-class 409/403
-// maps (via `mapApiError`) to a re-fetch that self-heals the client.
-//
-// Issue #11 / PRD #7 Phase 4. Terminology: docs/ubiquitous-language.md.
-
-describe("App — Phase 4 label edit", () => {
+describe("App — the author renaming an open round", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -687,7 +648,7 @@ describe("App — Phase 4 label edit", () => {
   );
 });
 
-describe("App — Phase 4 cancel round", () => {
+describe("App — the author cancelling an open round", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
