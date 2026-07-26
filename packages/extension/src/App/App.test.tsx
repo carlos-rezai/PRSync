@@ -1,3 +1,11 @@
+/* eslint-disable @typescript-eslint/require-await, @typescript-eslint/unbound-method, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unnecessary-type-assertion --
+   Every finding under these four rules in this file comes from one cause:
+   the partial client fakes below, and the type assertions that let them
+   stand in for complete interfaces. Group 1 of issue #14 replaces them
+   with a shared typed fixture module whose fakes implement their
+   interfaces fully, which deletes the findings rather than papering over
+   them — so fixing them here would be fixing them twice. This suppression
+   is removed in the commit that repoints this file at the fixtures. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   act,
