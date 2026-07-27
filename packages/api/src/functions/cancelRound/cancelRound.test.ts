@@ -1,11 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeCancelRoundHandler } from "./cancelRound";
 import {
   RoundService,
   RoundServiceError,
   type IdentityResolver,
 } from "../../services";
+import { PR_KEY } from "../../test/fixtures/fixtures";
+import {
+  makeContext,
+  makeIdentityResolver,
+  makeRequest,
+  type Faked,
+  type RequestOptions,
+} from "../../test/fixtures/fakes";
 
 // Contract tests for POST /api/prs/{prKey}/rounds/{n}/cancel. The function
 // layer is thin: validate the boundary (prKey, round number), resolve the
@@ -14,59 +21,38 @@ import {
 // author-only 403 (NOT_AUTHOR) check is the service's job — the function
 // passes the resolved caller through and never authorizes itself.
 
-const PR_KEY =
-  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
-
-function makeReq(opts: {
-  params?: Record<string, string>;
-  headers?: Record<string, string>;
-}): HttpRequest {
-  const { params = { prKey: PR_KEY, n: "1" }, headers = {} } = opts;
-  return {
+// Cancel carries no body at all, so `makeReq` never passes one — the
+// fake's `json()` rejects, exactly as the runtime's would.
+function makeReq(opts: Pick<RequestOptions, "params" | "headers"> = {}) {
+  const { params = { prKey: PR_KEY, n: "1" }, headers } = opts;
+  return makeRequest({
     method: "POST",
     url: `http://localhost/api/prs/${params.prKey}/rounds/${params.n}/cancel`,
     params,
-    query: new URLSearchParams(),
-    headers: new Headers(headers),
-    json: async () => {
-      throw new Error("no json body");
-    },
-    text: async () => "",
-  } as unknown as HttpRequest;
-}
-
-function makeCtx(): InvocationContext {
-  return {
-    invocationId: "test",
-    log: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    trace: vi.fn(),
-  } as unknown as InvocationContext;
+    headers,
+  });
 }
 
 let service: { cancelRound: ReturnType<typeof vi.fn> };
-let identity: { resolve: ReturnType<typeof vi.fn> };
+let identity: Faked<IdentityResolver>;
 
 beforeEach(() => {
   service = { cancelRound: vi.fn() };
-  identity = { resolve: vi.fn().mockResolvedValue({ adoId: "author-ado-id" }) };
+  identity = makeIdentityResolver("author-ado-id");
 });
 
+// `RoundService` is a class with private fields, so no structural fake is
+// assignable to it — the assertion is the seam, not an oversight. The
+// identity resolver is an interface, so its fake needs none.
 function handler() {
-  return makeCancelRoundHandler(
-    service as unknown as RoundService,
-    identity as unknown as IdentityResolver
-  );
+  return makeCancelRoundHandler(service as unknown as RoundService, identity);
 }
 
 describe("cancelRound handler — boundary validation (rejects before storage)", () => {
   it("rejects a malformed prKey with 400 and never calls the service", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: "not-a-key", n: "1" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.cancelRound).not.toHaveBeenCalled();
@@ -75,7 +61,7 @@ describe("cancelRound handler — boundary validation (rejects before storage)",
   it("rejects a non-positive round number with 400", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: PR_KEY, n: "0" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.cancelRound).not.toHaveBeenCalled();
@@ -84,7 +70,7 @@ describe("cancelRound handler — boundary validation (rejects before storage)",
   it("rejects a non-integer round number with 400", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: PR_KEY, n: "abc" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.cancelRound).not.toHaveBeenCalled();
@@ -95,7 +81,7 @@ describe("cancelRound handler — authentication (401)", () => {
   it("rejects a request whose identity cannot be resolved with 401 and never calls the service", async () => {
     identity.resolve.mockResolvedValue(null);
 
-    const res = await handler()(makeReq({}), makeCtx());
+    const res = await handler()(makeReq({}), makeContext());
 
     expect(res.status).toBe(401);
     expect(service.cancelRound).not.toHaveBeenCalled();
@@ -110,7 +96,7 @@ describe("cancelRound handler — success and error mapping", () => {
       status: "cancelled",
     });
 
-    const res = await handler()(makeReq({}), makeCtx());
+    const res = await handler()(makeReq({}), makeContext());
 
     expect(res.status).toBe(200);
     expect(identity.resolve).toHaveBeenCalled();
@@ -125,7 +111,7 @@ describe("cancelRound handler — success and error mapping", () => {
     service.cancelRound.mockRejectedValue(
       new RoundServiceError("NOT_AUTHOR", "not the author")
     );
-    const res = await handler()(makeReq({}), makeCtx());
+    const res = await handler()(makeReq({}), makeContext());
     expect(res.status).toBe(403);
   });
 
@@ -133,7 +119,7 @@ describe("cancelRound handler — success and error mapping", () => {
     service.cancelRound.mockRejectedValue(
       new RoundServiceError("ROUND_NOT_OPEN", "not open")
     );
-    const res = await handler()(makeReq({}), makeCtx());
+    const res = await handler()(makeReq({}), makeContext());
     expect(res.status).toBe(409);
   });
 
@@ -141,7 +127,7 @@ describe("cancelRound handler — success and error mapping", () => {
     service.cancelRound.mockRejectedValue(
       new RoundServiceError("CONCURRENCY_EXHAUSTED", "retries exhausted")
     );
-    const res = await handler()(makeReq({}), makeCtx());
+    const res = await handler()(makeReq({}), makeContext());
     expect(res.status).toBe(503);
   });
 });

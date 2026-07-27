@@ -1,11 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeToggleDoneHandler } from "./toggleDone";
 import {
   RoundService,
   RoundServiceError,
   type IdentityResolver,
 } from "../../services";
+import { PR_KEY } from "../../test/fixtures/fixtures";
+import {
+  loggedErrors,
+  makeContext,
+  makeIdentityResolver,
+  makeRequest,
+  type Faked,
+  type RequestOptions,
+} from "../../test/fixtures/fakes";
 
 // Contract tests for the PATCH /api/prs/{prKey}/rounds/{n}/done entry
 // point. The function layer is thin: validate the boundary (prKey, round
@@ -15,70 +23,38 @@ import {
 // The 403 "not a snapshotted reviewer" check is the service's job, not the
 // function's — the function never authorizes against the body.
 
-const PR_KEY =
-  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
-
 const MAX_BODY_BYTES = 1_000_000;
 
-function makeReq(opts: {
-  params?: Record<string, string>;
-  body?: unknown;
-  rawBody?: string;
-  headers?: Record<string, string>;
-}): HttpRequest {
-  const {
-    params = { prKey: PR_KEY, n: "1" },
-    body,
-    rawBody,
-    headers = {},
-  } = opts;
-  const raw = rawBody ?? (body === undefined ? "" : JSON.stringify(body));
-  return {
+function makeReq(opts: Omit<RequestOptions, "method" | "url"> = {}) {
+  const { params = { prKey: PR_KEY, n: "1" }, ...rest } = opts;
+  return makeRequest({
     method: "PATCH",
     url: `http://localhost/api/prs/${params.prKey}/rounds/${params.n}/done`,
     params,
-    query: new URLSearchParams(),
-    headers: new Headers(headers),
-    json: async () => {
-      if (body === undefined) throw new Error("no json body");
-      return body;
-    },
-    text: async () => raw,
-  } as unknown as HttpRequest;
-}
-
-function makeCtx(): InvocationContext {
-  return {
-    invocationId: "test",
-    log: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    trace: vi.fn(),
-  } as unknown as InvocationContext;
+    ...rest,
+  });
 }
 
 let service: { toggleDone: ReturnType<typeof vi.fn> };
-let identity: { resolve: ReturnType<typeof vi.fn> };
+let identity: Faked<IdentityResolver>;
 
 beforeEach(() => {
   service = { toggleDone: vi.fn() };
-  identity = { resolve: vi.fn().mockResolvedValue({ adoId: "r1" }) };
+  identity = makeIdentityResolver("r1");
 });
 
+// `RoundService` is a class with private fields, so no structural fake is
+// assignable to it — the assertion is the seam, not an oversight. The
+// identity resolver is an interface, so its fake needs none.
 function handler() {
-  return makeToggleDoneHandler(
-    service as unknown as RoundService,
-    identity as unknown as IdentityResolver
-  );
+  return makeToggleDoneHandler(service as unknown as RoundService, identity);
 }
 
 describe("toggleDone handler — boundary validation (rejects before storage)", () => {
   it("rejects a malformed prKey with 400 and never calls the service", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: "not-a-key", n: "1" }, body: { done: true } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.toggleDone).not.toHaveBeenCalled();
@@ -87,7 +63,7 @@ describe("toggleDone handler — boundary validation (rejects before storage)", 
   it("rejects a non-positive round number with 400", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: PR_KEY, n: "0" }, body: { done: true } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.toggleDone).not.toHaveBeenCalled();
@@ -96,20 +72,23 @@ describe("toggleDone handler — boundary validation (rejects before storage)", 
   it("rejects a non-integer round number with 400", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: PR_KEY, n: "abc" }, body: { done: true } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.toggleDone).not.toHaveBeenCalled();
   });
 
   it("rejects a body missing `done` with 400", async () => {
-    const res = await handler()(makeReq({ body: {} }), makeCtx());
+    const res = await handler()(makeReq({ body: {} }), makeContext());
     expect(res.status).toBe(400);
     expect(service.toggleDone).not.toHaveBeenCalled();
   });
 
   it("rejects a non-boolean `done` with 400", async () => {
-    const res = await handler()(makeReq({ body: { done: "yes" } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { done: "yes" } }),
+      makeContext()
+    );
     expect(res.status).toBe(400);
     expect(service.toggleDone).not.toHaveBeenCalled();
   });
@@ -117,7 +96,7 @@ describe("toggleDone handler — boundary validation (rejects before storage)", 
   it("rejects an attempt to target another reviewer via the body (no reviewer id field) with 400", async () => {
     const res = await handler()(
       makeReq({ body: { done: true, adoId: "victim" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.toggleDone).not.toHaveBeenCalled();
@@ -129,7 +108,7 @@ describe("toggleDone handler — boundary validation (rejects before storage)", 
         rawBody: "x".repeat(MAX_BODY_BYTES * 2),
         headers: { "content-length": String(MAX_BODY_BYTES * 2) },
       }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(413);
     expect(service.toggleDone).not.toHaveBeenCalled();
@@ -140,7 +119,10 @@ describe("toggleDone handler — authentication (401)", () => {
   it("rejects a request whose identity cannot be resolved with 401 and never calls the service", async () => {
     identity.resolve.mockResolvedValue(null);
 
-    const res = await handler()(makeReq({ body: { done: true } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { done: true } }),
+      makeContext()
+    );
 
     expect(res.status).toBe(401);
     expect(service.toggleDone).not.toHaveBeenCalled();
@@ -151,7 +133,7 @@ describe("toggleDone handler — PII-safe logging", () => {
   it("never writes the bearer token to the logs on an unexpected error; correlates on PR key + round number", async () => {
     const TOKEN = "super-secret-bearer-token";
     service.toggleDone.mockRejectedValue(new Error("boom"));
-    const ctx = makeCtx();
+    const ctx = makeContext();
 
     await expect(
       handler()(
@@ -163,11 +145,8 @@ describe("toggleDone handler — PII-safe logging", () => {
       )
     ).rejects.toThrow();
 
-    expect(ctx.error).toHaveBeenCalled();
-    const logged = (ctx.error as unknown as ReturnType<typeof vi.fn>).mock.calls
-      .flat()
-      .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
-      .join(" ");
+    expect(ctx.spies.error).toHaveBeenCalled();
+    const logged = loggedErrors(ctx);
     expect(logged).toContain(PR_KEY);
     expect(logged).toContain("1"); // round number correlation
     expect(logged).not.toContain(TOKEN);
@@ -182,7 +161,10 @@ describe("toggleDone handler — success and error mapping", () => {
       status: "open",
     });
 
-    const res = await handler()(makeReq({ body: { done: true } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { done: true } }),
+      makeContext()
+    );
 
     expect(res.status).toBe(200);
     expect(identity.resolve).toHaveBeenCalled();
@@ -198,7 +180,10 @@ describe("toggleDone handler — success and error mapping", () => {
     service.toggleDone.mockRejectedValue(
       new RoundServiceError("NOT_A_REVIEWER", "not a reviewer")
     );
-    const res = await handler()(makeReq({ body: { done: true } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { done: true } }),
+      makeContext()
+    );
     expect(res.status).toBe(403);
   });
 
@@ -206,7 +191,10 @@ describe("toggleDone handler — success and error mapping", () => {
     service.toggleDone.mockRejectedValue(
       new RoundServiceError("ROUND_NOT_OPEN", "not open")
     );
-    const res = await handler()(makeReq({ body: { done: true } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { done: true } }),
+      makeContext()
+    );
     expect(res.status).toBe(409);
   });
 
@@ -214,7 +202,10 @@ describe("toggleDone handler — success and error mapping", () => {
     service.toggleDone.mockRejectedValue(
       new RoundServiceError("CONCURRENCY_EXHAUSTED", "retries exhausted")
     );
-    const res = await handler()(makeReq({ body: { done: true } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { done: true } }),
+      makeContext()
+    );
     expect(res.status).toBe(503);
   });
 });

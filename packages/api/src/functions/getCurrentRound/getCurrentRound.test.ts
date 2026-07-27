@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { HttpRequest, InvocationContext } from "@azure/functions";
+import type { HttpRequest } from "@azure/functions";
 import { makeGetCurrentRoundHandler } from "./getCurrentRound";
-import { RoundService, type IdentityResolver } from "../../services";
+import type { IdentityResolver, RoundService } from "../../services";
+import { PR_KEY } from "../../test/fixtures/fixtures";
+import {
+  makeContext,
+  makeIdentityResolver,
+  makeRequest,
+  type Faked,
+} from "../../test/fixtures/fakes";
 
 // Contract tests for GET /api/prs/{prKey}/rounds/current. Returns 200
 // with the latest round (any status), 204 when the PR has never had a
@@ -10,45 +17,31 @@ import { RoundService, type IdentityResolver } from "../../services";
 // so it requires a valid ADO bearer token exactly like the mutating
 // endpoints — an unresolved identity is 401 BEFORE any storage access.
 
-const PR_KEY =
-  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
-
 function makeReq(
   params: Record<string, string> = { prKey: PR_KEY }
 ): HttpRequest {
-  return {
+  return makeRequest({
     method: "GET",
     url: `http://localhost/api/prs/${params.prKey}/rounds/current`,
     params,
-    query: new URLSearchParams(),
-    headers: new Headers(),
-  } as unknown as HttpRequest;
-}
-
-function makeCtx(): InvocationContext {
-  return {
-    invocationId: "test",
-    log: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    trace: vi.fn(),
-  } as unknown as InvocationContext;
+  });
 }
 
 let service: { getCurrentRound: ReturnType<typeof vi.fn> };
-let identity: { resolve: ReturnType<typeof vi.fn> };
+let identity: Faked<IdentityResolver>;
 
 beforeEach(() => {
   service = { getCurrentRound: vi.fn() };
-  identity = { resolve: vi.fn().mockResolvedValue({ adoId: "u1" }) };
+  identity = makeIdentityResolver("u1");
 });
 
+// `RoundService` is a class with private fields, so no structural fake is
+// assignable to it — the assertion is the seam, not an oversight. The
+// identity resolver is an interface, so its fake needs none.
 function handler() {
   return makeGetCurrentRoundHandler(
     service as unknown as RoundService,
-    identity as unknown as IdentityResolver
+    identity
   );
 }
 
@@ -56,7 +49,7 @@ describe("getCurrentRound handler — authentication (401)", () => {
   it("rejects a request whose identity cannot be resolved with 401 and never calls the service", async () => {
     identity.resolve.mockResolvedValue(null);
 
-    const res = await handler()(makeReq(), makeCtx());
+    const res = await handler()(makeReq(), makeContext());
 
     expect(res.status).toBe(401);
     expect(service.getCurrentRound).not.toHaveBeenCalled();
@@ -65,7 +58,7 @@ describe("getCurrentRound handler — authentication (401)", () => {
 
 describe("getCurrentRound handler — read contract (authenticated)", () => {
   it("rejects a malformed prKey with 400 and never calls the service", async () => {
-    const res = await handler()(makeReq({ prKey: "not-a-key" }), makeCtx());
+    const res = await handler()(makeReq({ prKey: "not-a-key" }), makeContext());
     expect(res.status).toBe(400);
     expect(service.getCurrentRound).not.toHaveBeenCalled();
   });
@@ -77,7 +70,7 @@ describe("getCurrentRound handler — read contract (authenticated)", () => {
       status: "cancelled",
     });
 
-    const res = await handler()(makeReq(), makeCtx());
+    const res = await handler()(makeReq(), makeContext());
 
     expect(res.status).toBe(200);
     expect(identity.resolve).toHaveBeenCalled();
@@ -88,7 +81,7 @@ describe("getCurrentRound handler — read contract (authenticated)", () => {
   it("returns 204 with no body for a PR that has never had a round", async () => {
     service.getCurrentRound.mockResolvedValue(null);
 
-    const res = await handler()(makeReq(), makeCtx());
+    const res = await handler()(makeReq(), makeContext());
 
     expect(res.status).toBe(204);
     expect(res.jsonBody).toBeUndefined();

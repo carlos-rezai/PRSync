@@ -43,6 +43,22 @@ module.exports = tseslint.config(
       // through the Azure Functions invocation context and the extension
       // bundle logs nothing at all, so neither package needs an escape.
       "no-console": "error",
+      // A leading `_` is this repo's way of saying "bound on purpose,
+      // used on purpose never": the trailing `context` an Azure Functions
+      // handler must declare to reach `request`, a key destructured only
+      // to drop it from the rest, a caught error the handler ignores.
+      // Teaching the rule the convention keeps it biting for every
+      // binding left unused by accident, which renaming the sites one by
+      // one would not. Lives here rather than in a package so the two
+      // workspaces answer alike — the whole point of one shared config.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+        },
+      ],
     },
   },
 

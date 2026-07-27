@@ -3,6 +3,7 @@ import { RoundService, RoundServiceError } from "./RoundService";
 import type { NotificationPort } from "../NotificationPort/NotificationPort";
 import { PreconditionFailedError, type RoundRepository } from "../../storage";
 import type { IncomingReviewer, Round, RoundReviewer } from "../../lib";
+import type { Faked } from "../../test/fixtures/fakes";
 
 // Behavioural tests over the RoundService public interface, exercised
 // against an in-memory RoundRepository fake and a spy NotificationPort
@@ -33,41 +34,52 @@ class InMemoryRoundRepository implements RoundRepository {
     return next;
   }
 
-  async getCurrentRound(prKey: string): Promise<Round | null> {
+  // None of these await anything — the store is a Map. They return
+  // promises rather than being declared `async`, so that the signatures
+  // still honour the interface without claiming an await that never
+  // happens. Failures reject rather than throwing synchronously, which
+  // is what the real repository does and what the service's retry loop
+  // is written against.
+
+  getCurrentRound(prKey: string): Promise<Round | null> {
     const rounds = this.byPr.get(prKey) ?? [];
-    if (rounds.length === 0) return null;
-    return structuredClone(
-      rounds.reduce((a, b) => (b.roundNumber > a.roundNumber ? b : a))
+    if (rounds.length === 0) return Promise.resolve(null);
+    return Promise.resolve(
+      structuredClone(
+        rounds.reduce((a, b) => (b.roundNumber > a.roundNumber ? b : a))
+      )
     );
   }
 
-  async createRound(round: Round): Promise<Round> {
+  createRound(round: Round): Promise<Round> {
     const rounds = this.byPr.get(round.prKey) ?? [];
     rounds.push(structuredClone(round));
     this.byPr.set(round.prKey, rounds);
     this.bump(round.prKey, round.roundNumber);
-    return structuredClone(round);
+    return Promise.resolve(structuredClone(round));
   }
 
-  async getRound(
+  getRound(
     prKey: string,
     roundNumber: number
   ): Promise<{ round: Round; etag: string } | null> {
     const rounds = this.byPr.get(prKey) ?? [];
     const found = rounds.find((r) => r.roundNumber === roundNumber);
-    if (found === undefined) return null;
-    return {
+    if (found === undefined) return Promise.resolve(null);
+    return Promise.resolve({
       round: structuredClone(found),
       etag: this.etags.get(this.rowKey(prKey, roundNumber))!,
-    };
+    });
   }
 
-  async updateRound(
+  updateRound(
     round: Round,
     etag: string
   ): Promise<{ round: Round; etag: string }> {
     this.updateCalls++;
-    if (this.failAllUpdates) throw new PreconditionFailedError();
+    if (this.failAllUpdates) {
+      return Promise.reject(new PreconditionFailedError());
+    }
 
     // A one-shot hook lets a test inject a competing write (bumping the
     // ETag) between our read and our conditional write.
@@ -78,13 +90,15 @@ class InMemoryRoundRepository implements RoundRepository {
     }
 
     const key = this.rowKey(round.prKey, round.roundNumber);
-    if (this.etags.get(key) !== etag) throw new PreconditionFailedError();
+    if (this.etags.get(key) !== etag) {
+      return Promise.reject(new PreconditionFailedError());
+    }
 
     const rounds = this.byPr.get(round.prKey)!;
     const idx = rounds.findIndex((r) => r.roundNumber === round.roundNumber);
     rounds[idx] = structuredClone(round);
     const nextEtag = this.bump(round.prKey, round.roundNumber);
-    return { round: structuredClone(round), etag: nextEtag };
+    return Promise.resolve({ round: structuredClone(round), etag: nextEtag });
   }
 
   // Test-only seeding helper (not part of the interface).
@@ -158,13 +172,16 @@ function seedRound(overrides: Partial<Round>): Round {
 }
 
 let repo: InMemoryRoundRepository;
-let notifications: NotificationPort;
+// `Faked` rather than `NotificationPort`, so the two spies are mock
+// PROPERTIES: a test can assert on `notifications.roundOpened` without
+// tearing a method off the port it belongs to.
+let notifications: Faked<NotificationPort>;
 
 beforeEach(() => {
   repo = new InMemoryRoundRepository();
   notifications = {
-    roundOpened: vi.fn().mockResolvedValue(undefined),
-    roundClosed: vi.fn().mockResolvedValue(undefined),
+    roundOpened: vi.fn(() => Promise.resolve()),
+    roundClosed: vi.fn(() => Promise.resolve()),
   };
 });
 
@@ -284,7 +301,7 @@ describe("RoundService.openRound", () => {
 
   it("fires roundOpened exactly once, after the round is committed", async () => {
     let committedAtNotifyTime: Round | null = null;
-    notifications.roundOpened = vi.fn(async () => {
+    notifications.roundOpened.mockImplementation(async () => {
       committedAtNotifyTime = await repo.getCurrentRound(PR_KEY);
     });
 
@@ -299,9 +316,7 @@ describe("RoundService.openRound", () => {
   });
 
   it("isolates a notification failure — the open still succeeds and is committed", async () => {
-    notifications.roundOpened = vi
-      .fn()
-      .mockRejectedValue(new Error("bot is down"));
+    notifications.roundOpened.mockRejectedValue(new Error("bot is down"));
 
     const round = await service().openRound(PR_KEY, openInput());
 
@@ -542,9 +557,7 @@ describe("RoundService.toggleDone", () => {
       ],
       2
     );
-    notifications.roundClosed = vi
-      .fn()
-      .mockRejectedValue(new Error("bot is down"));
+    notifications.roundClosed.mockRejectedValue(new Error("bot is down"));
 
     const updated = await service().toggleDone(PR_KEY, {
       roundNumber: 1,

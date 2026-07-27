@@ -1,11 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeOpenRoundHandler } from "./openRound";
 import {
   RoundService,
   RoundServiceError,
   type IdentityResolver,
 } from "../../services";
+import { PR_KEY } from "../../test/fixtures/fixtures";
+import {
+  loggedErrors,
+  makeContext,
+  makeIdentityResolver,
+  makeRequest,
+  type Faked,
+  type RequestOptions,
+} from "../../test/fixtures/fakes";
 
 // Contract tests for the POST /api/prs/{prKey}/rounds entry point. The
 // function layer is thin: zod-validate (reject-unknown), call the
@@ -19,9 +27,6 @@ import {
 // author `adoId` field, so authoring a round as someone else is
 // inexpressible (mirrors the done-toggle rule). Tokens and reviewer
 // emails must never reach the logs.
-
-const PR_KEY =
-  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
 
 const CALLER_ADO_ID = "caller-ado-id";
 const BEARER_TOKEN = "super-secret-bearer-token";
@@ -58,60 +63,36 @@ function validBody() {
   };
 }
 
-function makeReq(opts: {
-  params?: Record<string, string>;
-  body?: unknown;
-  rawBody?: string;
-  headers?: Record<string, string>;
-}): HttpRequest {
-  const { params = { prKey: PR_KEY }, body, rawBody, headers = {} } = opts;
-  const raw = rawBody ?? (body === undefined ? "" : JSON.stringify(body));
-  return {
+function makeReq(opts: Omit<RequestOptions, "method" | "url"> = {}) {
+  const { params = { prKey: PR_KEY }, ...rest } = opts;
+  return makeRequest({
     method: "POST",
     url: `http://localhost/api/prs/${params.prKey}/rounds`,
     params,
-    query: new URLSearchParams(),
-    headers: new Headers(headers),
-    json: async () => {
-      if (body === undefined) throw new Error("no json body");
-      return body;
-    },
-    text: async () => raw,
-  } as unknown as HttpRequest;
-}
-
-function makeCtx(): InvocationContext {
-  return {
-    invocationId: "test",
-    log: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    trace: vi.fn(),
-  } as unknown as InvocationContext;
+    ...rest,
+  });
 }
 
 let service: { openRound: ReturnType<typeof vi.fn> };
-let identity: { resolve: ReturnType<typeof vi.fn> };
+let identity: Faked<IdentityResolver>;
 
 beforeEach(() => {
   service = { openRound: vi.fn() };
-  identity = { resolve: vi.fn().mockResolvedValue({ adoId: CALLER_ADO_ID }) };
+  identity = makeIdentityResolver(CALLER_ADO_ID);
 });
 
+// `RoundService` is a class with private fields, so no structural fake is
+// assignable to it — the assertion is the seam, not an oversight. The
+// identity resolver is an interface, so its fake needs none.
 function handler() {
-  return makeOpenRoundHandler(
-    service as unknown as RoundService,
-    identity as unknown as IdentityResolver
-  );
+  return makeOpenRoundHandler(service as unknown as RoundService, identity);
 }
 
 describe("openRound handler — boundary validation (rejects before storage)", () => {
   it("rejects a malformed prKey with 400 and never calls the service", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: "not-a-key" }, body: validBody() }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.openRound).not.toHaveBeenCalled();
@@ -120,7 +101,7 @@ describe("openRound handler — boundary validation (rejects before storage)", (
   it("rejects an unknown body field with 400 and never calls the service", async () => {
     const res = await handler()(
       makeReq({ body: { ...validBody(), injected: "nope" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.openRound).not.toHaveBeenCalled();
@@ -128,7 +109,10 @@ describe("openRound handler — boundary validation (rejects before storage)", (
 
   it("rejects a body missing a required field with 400", async () => {
     const { reviewers: _omitted, ...withoutReviewers } = validBody();
-    const res = await handler()(makeReq({ body: withoutReviewers }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: withoutReviewers }),
+      makeContext()
+    );
     expect(res.status).toBe(400);
     expect(service.openRound).not.toHaveBeenCalled();
   });
@@ -139,7 +123,7 @@ describe("openRound handler — boundary validation (rejects before storage)", (
         rawBody: "x".repeat(2_000_000),
         headers: { "content-length": String(2_000_000) },
       }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(413);
     expect(service.openRound).not.toHaveBeenCalled();
@@ -150,7 +134,7 @@ describe("openRound handler — authentication (401)", () => {
   it("rejects a request whose identity cannot be resolved with 401 and never calls the service", async () => {
     identity.resolve.mockResolvedValue(null);
 
-    const res = await handler()(makeReq({ body: validBody() }), makeCtx());
+    const res = await handler()(makeReq({ body: validBody() }), makeContext());
 
     expect(res.status).toBe(401);
     expect(service.openRound).not.toHaveBeenCalled();
@@ -166,7 +150,7 @@ describe("openRound handler — author identity comes from the token, never the 
       status: "open",
     });
 
-    const res = await handler()(makeReq({ body: validBody() }), makeCtx());
+    const res = await handler()(makeReq({ body: validBody() }), makeContext());
 
     expect(res.status).toBe(201);
     expect(identity.resolve).toHaveBeenCalled();
@@ -182,7 +166,7 @@ describe("openRound handler — author identity comes from the token, never the 
       makeReq({
         body: { ...body, author: { ...body.author, adoId: "someone-else" } },
       }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.openRound).not.toHaveBeenCalled();
@@ -192,7 +176,7 @@ describe("openRound handler — author identity comes from the token, never the 
 describe("openRound handler — PII-safe logging", () => {
   it("never writes the bearer token or reviewer/author emails to the logs on an unexpected error; correlates on PR key", async () => {
     service.openRound.mockRejectedValue(new Error("boom"));
-    const ctx = makeCtx();
+    const ctx = makeContext();
 
     await expect(
       handler()(
@@ -205,11 +189,8 @@ describe("openRound handler — PII-safe logging", () => {
     ).rejects.toThrow();
 
     // The handler logs a correlation line for observability...
-    expect(ctx.error).toHaveBeenCalled();
-    const logged = (ctx.error as unknown as ReturnType<typeof vi.fn>).mock.calls
-      .flat()
-      .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
-      .join(" ");
+    expect(ctx.spies.error).toHaveBeenCalled();
+    const logged = loggedErrors(ctx);
     // ...correlating on the PR key, never leaking the token or any email.
     expect(logged).toContain(PR_KEY);
     expect(logged).not.toContain(BEARER_TOKEN);
@@ -226,7 +207,7 @@ describe("openRound handler — success and error mapping", () => {
       status: "open",
     });
 
-    const res = await handler()(makeReq({ body: validBody() }), makeCtx());
+    const res = await handler()(makeReq({ body: validBody() }), makeContext());
 
     expect(res.status).toBe(201);
     expect(service.openRound).toHaveBeenCalledWith(PR_KEY, expect.any(Object));
@@ -237,7 +218,7 @@ describe("openRound handler — success and error mapping", () => {
     service.openRound.mockRejectedValue(
       new RoundServiceError("ROUND_ALREADY_OPEN", "already open")
     );
-    const res = await handler()(makeReq({ body: validBody() }), makeCtx());
+    const res = await handler()(makeReq({ body: validBody() }), makeContext());
     expect(res.status).toBe(409);
   });
 
@@ -245,7 +226,7 @@ describe("openRound handler — success and error mapping", () => {
     service.openRound.mockRejectedValue(
       new RoundServiceError("INSUFFICIENT_REVIEWERS", "not enough")
     );
-    const res = await handler()(makeReq({ body: validBody() }), makeCtx());
+    const res = await handler()(makeReq({ body: validBody() }), makeContext());
     expect(res.status).toBe(422);
   });
 });

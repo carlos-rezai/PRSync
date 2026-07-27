@@ -1,11 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { HttpRequest, InvocationContext } from "@azure/functions";
 import { makeEditLabelHandler } from "./editLabel";
 import {
   RoundService,
   RoundServiceError,
   type IdentityResolver,
 } from "../../services";
+import { PR_KEY } from "../../test/fixtures/fixtures";
+import {
+  makeContext,
+  makeIdentityResolver,
+  makeRequest,
+  type Faked,
+  type RequestOptions,
+} from "../../test/fixtures/fakes";
 
 // Contract tests for PATCH /api/prs/{prKey}/rounds/{n}. The function layer
 // is thin: validate the boundary (prKey, round number, and a `{ label }`
@@ -14,63 +21,31 @@ import {
 // map its result/errors to HTTP. The author-only 403 (NOT_AUTHOR) check is
 // the service's job — the function passes the resolved caller through.
 
-const PR_KEY =
-  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
-
 const MAX_BODY_BYTES = 1_000_000;
 
-function makeReq(opts: {
-  params?: Record<string, string>;
-  body?: unknown;
-  rawBody?: string;
-  headers?: Record<string, string>;
-}): HttpRequest {
-  const {
-    params = { prKey: PR_KEY, n: "1" },
-    body,
-    rawBody,
-    headers = {},
-  } = opts;
-  const raw = rawBody ?? (body === undefined ? "" : JSON.stringify(body));
-  return {
+function makeReq(opts: Omit<RequestOptions, "method" | "url"> = {}) {
+  const { params = { prKey: PR_KEY, n: "1" }, ...rest } = opts;
+  return makeRequest({
     method: "PATCH",
     url: `http://localhost/api/prs/${params.prKey}/rounds/${params.n}`,
     params,
-    query: new URLSearchParams(),
-    headers: new Headers(headers),
-    json: async () => {
-      if (body === undefined) throw new Error("no json body");
-      return body;
-    },
-    text: async () => raw,
-  } as unknown as HttpRequest;
-}
-
-function makeCtx(): InvocationContext {
-  return {
-    invocationId: "test",
-    log: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    trace: vi.fn(),
-  } as unknown as InvocationContext;
+    ...rest,
+  });
 }
 
 let service: { editLabel: ReturnType<typeof vi.fn> };
-let identity: { resolve: ReturnType<typeof vi.fn> };
+let identity: Faked<IdentityResolver>;
 
 beforeEach(() => {
   service = { editLabel: vi.fn() };
-  identity = { resolve: vi.fn().mockResolvedValue({ adoId: "author-ado-id" }) };
+  identity = makeIdentityResolver("author-ado-id");
 });
 
+// `RoundService` is a class with private fields, so no structural fake is
+// assignable to it — the assertion is the seam, not an oversight. The
+// identity resolver is an interface, so its fake needs none.
 function handler() {
-  return makeEditLabelHandler(
-    service as unknown as RoundService,
-    identity as unknown as IdentityResolver
-  );
+  return makeEditLabelHandler(service as unknown as RoundService, identity);
 }
 
 describe("editLabel handler — boundary validation (rejects before storage)", () => {
@@ -80,7 +55,7 @@ describe("editLabel handler — boundary validation (rejects before storage)", (
         params: { prKey: "not-a-key", n: "1" },
         body: { label: "New label" },
       }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.editLabel).not.toHaveBeenCalled();
@@ -89,7 +64,7 @@ describe("editLabel handler — boundary validation (rejects before storage)", (
   it("rejects a non-positive round number with 400", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: PR_KEY, n: "0" }, body: { label: "x" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.editLabel).not.toHaveBeenCalled();
@@ -98,20 +73,20 @@ describe("editLabel handler — boundary validation (rejects before storage)", (
   it("rejects a non-integer round number with 400", async () => {
     const res = await handler()(
       makeReq({ params: { prKey: PR_KEY, n: "abc" }, body: { label: "x" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.editLabel).not.toHaveBeenCalled();
   });
 
   it("rejects a body missing `label` with 400", async () => {
-    const res = await handler()(makeReq({ body: {} }), makeCtx());
+    const res = await handler()(makeReq({ body: {} }), makeContext());
     expect(res.status).toBe(400);
     expect(service.editLabel).not.toHaveBeenCalled();
   });
 
   it("rejects a non-string `label` with 400", async () => {
-    const res = await handler()(makeReq({ body: { label: 7 } }), makeCtx());
+    const res = await handler()(makeReq({ body: { label: 7 } }), makeContext());
     expect(res.status).toBe(400);
     expect(service.editLabel).not.toHaveBeenCalled();
   });
@@ -119,7 +94,7 @@ describe("editLabel handler — boundary validation (rejects before storage)", (
   it("rejects an unknown extra field with 400 (reject-unknown)", async () => {
     const res = await handler()(
       makeReq({ body: { label: "New label", status: "closed" } }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(400);
     expect(service.editLabel).not.toHaveBeenCalled();
@@ -131,7 +106,7 @@ describe("editLabel handler — boundary validation (rejects before storage)", (
         rawBody: "x".repeat(MAX_BODY_BYTES * 2),
         headers: { "content-length": String(MAX_BODY_BYTES * 2) },
       }),
-      makeCtx()
+      makeContext()
     );
     expect(res.status).toBe(413);
     expect(service.editLabel).not.toHaveBeenCalled();
@@ -144,7 +119,7 @@ describe("editLabel handler — authentication (401)", () => {
 
     const res = await handler()(
       makeReq({ body: { label: "New label" } }),
-      makeCtx()
+      makeContext()
     );
 
     expect(res.status).toBe(401);
@@ -163,7 +138,7 @@ describe("editLabel handler — success and error mapping", () => {
 
     const res = await handler()(
       makeReq({ body: { label: "New label" } }),
-      makeCtx()
+      makeContext()
     );
 
     expect(res.status).toBe(200);
@@ -180,7 +155,10 @@ describe("editLabel handler — success and error mapping", () => {
     service.editLabel.mockRejectedValue(
       new RoundServiceError("NOT_AUTHOR", "not the author")
     );
-    const res = await handler()(makeReq({ body: { label: "x" } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { label: "x" } }),
+      makeContext()
+    );
     expect(res.status).toBe(403);
   });
 
@@ -188,7 +166,10 @@ describe("editLabel handler — success and error mapping", () => {
     service.editLabel.mockRejectedValue(
       new RoundServiceError("ROUND_NOT_OPEN", "not open")
     );
-    const res = await handler()(makeReq({ body: { label: "x" } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { label: "x" } }),
+      makeContext()
+    );
     expect(res.status).toBe(409);
   });
 
@@ -196,7 +177,10 @@ describe("editLabel handler — success and error mapping", () => {
     service.editLabel.mockRejectedValue(
       new RoundServiceError("CONCURRENCY_EXHAUSTED", "retries exhausted")
     );
-    const res = await handler()(makeReq({ body: { label: "x" } }), makeCtx());
+    const res = await handler()(
+      makeReq({ body: { label: "x" } }),
+      makeContext()
+    );
     expect(res.status).toBe(503);
   });
 });

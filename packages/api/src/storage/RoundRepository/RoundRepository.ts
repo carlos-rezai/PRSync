@@ -170,7 +170,9 @@ export class TableStorageRoundRepository implements RoundRepository {
 // repository stays the only layer coupled to the SDK.
 function statusCodeOf(error: unknown): number | undefined {
   if (typeof error === "object" && error !== null && "statusCode" in error) {
-    const code = (error as { statusCode: unknown }).statusCode;
+    // The `in` narrowing already gives `error.statusCode` the type
+    // `unknown`, so there is nothing left for an assertion to say.
+    const code: unknown = error.statusCode;
     return typeof code === "number" ? code : undefined;
   }
   return undefined;
