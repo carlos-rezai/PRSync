@@ -8,6 +8,11 @@ Restructured 2026-07-24 during the round-lifecycle grill-me
 unanimity close rule with a **quorum** and added the **cancelled**
 state.
 
+Extended 2026-07-27 during the Teams-notifications grill-me
+(`docs/design-logs/03-teams-notifications.md`), which added the
+**Teams delivery** vocabulary and promoted the **NotificationPort**
+from a no-op stub to a real queue producer.
+
 ## Round lifecycle
 
 | Term                         | Definition                                                                                                                                                                                               | Aliases to avoid         |
@@ -42,12 +47,34 @@ state.
 
 ## Notification
 
-| Term                                  | Definition                                                                                                                                                                                 | Aliases to avoid      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
-| **PRSync** _(Teams identity)_         | The sender name on all Teams DMs; a personal 1:1 DM per person, delivered by a registered Azure Bot with proactive messaging (never a Teams incoming webhook).                             | Bot, webhook, channel |
-| **Round-opened notification** _(new)_ | The DM sent to **every** tracked reviewer (required and optional) when a round opens.                                                                                                      | Reviewer alert        |
-| **Round-closed notification** _(new)_ | The single "safe to proceed" DM sent to the author when a round closes.                                                                                                                    | Author alert          |
-| **NotificationPort** _(new)_          | The domain-language seam (`roundOpened` / `roundClosed`) that round-lifecycle calls to trigger DMs; in v1 a no-op logging stub, with the real bot adapter supplied by Feature 3 behind it. | Dispatcher, notifier  |
+| Term                                      | Definition                                                                                                                                                                             | Aliases to avoid      |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| **PRSync** _(Teams identity)_             | The sender name on all Teams DMs; a personal 1:1 DM per person, delivered by a registered Azure Bot with proactive messaging (never a Teams incoming webhook).                         | Bot, webhook, channel |
+| **Round-opened notification** _(updated)_ | The domain event fired when a round opens; fans out to one **Notification message** per tracked reviewer (required and optional).                                                      | Reviewer alert        |
+| **Round-closed notification** _(updated)_ | The domain event fired when a round closes; produces the single "safe to proceed" **Notification message** addressed to the author.                                                    | Author alert          |
+| **NotificationPort** _(updated)_          | The domain-language seam (`roundOpened` / `roundClosed`) that round-lifecycle calls to trigger DMs. Its implementation enqueues onto the **Notification queue** and does nothing else. | Dispatcher, notifier  |
+
+## Teams delivery
+
+Terms introduced during the Teams-notifications grill-me
+(`docs/design-logs/03-teams-notifications.md`, 2026-07-27). These
+describe how a fired notification becomes a DM in a named person's
+Teams chat — the API side owns _which transition fires_, this
+vocabulary owns _how it is delivered_.
+
+| Term                                | Definition                                                                                                                                                        | Aliases to avoid              |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| **Notification message** _(new)_    | One queued unit of delivery: exactly one DM to exactly one person, carrying a self-contained snapshot of everything the card needs. Never a reference to a round. | Event, payload, notification  |
+| **Notification queue** _(new)_      | The Azure Storage Queue (`prsync-notifications`) that is the _entire_ boundary between the API and the bot — they share no code and no synchronous call.          | Bus, topic, channel           |
+| **Conversation reference** _(new)_  | The Teams-issued handle that lets the bot open a personal 1:1 DM with one person; obtained only at **Install capture**, and dead once they uninstall.             | Chat id, address, handle      |
+| **Teams identity** _(new)_          | The stored mapping from a person's normalized email to their **Conversation reference**. The delivery-side identity — never an authorization key.                 | User record, profile, account |
+| **Install capture** _(new)_         | The moment a person sideloads PRSync in personal scope and the bot persists their **Conversation reference**. Without it a person is **Unreachable**.             | Registration, onboarding      |
+| **Notification log** _(new)_        | The per-recipient record of one delivery outcome (`sent`, `no-identity`, `failed`), keyed by round, event and recipient; doubles as the dedupe check.             | Audit, history, receipts      |
+| **Reachable / Unreachable** _(new)_ | Whether a person has a **Teams identity**. An **Unreachable** recipient is a logged fact, never an error and never a reason to fail or alter a round.             | Missing, invalid, failed      |
+| **Terminal failure** _(new)_        | A delivery failure that retrying cannot fix — an **Unreachable** recipient or an unrecognised message version. Logged and completed, never retried.               | Permanent error, fatal        |
+| **Transient failure** _(new)_       | A delivery failure that retrying may fix — a network or Bot Framework error. Thrown so the queue retries, then poisons.                                           | Temporary error, glitch       |
+| **Help card** _(new)_               | The short reply the bot sends to any message a person types at it — the only way to confirm an install worked, since v1 cards are otherwise link-out only.        | Welcome message, greeting     |
+| **Teams app package** _(new)_       | The sideloadable `prsync-teams.zip` (manifest + the two Teams icons), personal scope only — the Teams-side analogue of the extension's `.vsix`.                   | Teams app, bundle, install    |
 
 ## Panel (extension UI)
 
@@ -85,6 +112,17 @@ Terms introduced during the Extension Panel grill-me
 - A **Round closed** transition fires one **Round-closed notification**
   to the **Author**; **Round opened** fires a **Round-opened
   notification** to every **Reviewer**.
+- A **Round-opened notification** produces one **Notification message**
+  per **Reviewer**; a **Round-closed notification** produces exactly
+  one, for the **Author**. **Cancelled** produces none.
+- Every **Notification message** goes onto the **Notification queue**
+  and is resolved against a **Teams identity** to reach a
+  **Conversation reference**; a person with no **Teams identity** is
+  **Unreachable**, which is a **Terminal failure**.
+- Each delivery attempt writes one **Notification log** row, which is
+  also what prevents a redelivered message from sending a second DM.
+- A person gains a **Teams identity** at **Install capture** and loses
+  it when they uninstall the **Teams app package**.
 - A **Reviewer** and an **Author** are each a person keyed by **adoId**;
   the same person may author some rounds and review others.
 - **Cancelled** and **Round closed** are both terminal; only **Round
@@ -115,6 +153,20 @@ Terms introduced during the Extension Panel grill-me
 > **Domain expert:** "No — polling notices the **Round fingerprint** no
 > longer matches your **Baseline**, that's **Drift**, and you get a
 > **Refresh banner** to click. We never silently live-patch."
+> **Dev:** "When the **Round-opened notification** fires, does the API
+> send the DMs?"
+> **Domain expert:** "No — it puts one **Notification message** per
+> **Reviewer** on the **Notification queue** and forgets about it. The
+> bot resolves each one to a **Teams identity** and sends."
+> **Dev:** "What if someone never installed the bot?"
+> **Domain expert:** "They're **Unreachable**. That's a **Terminal
+> failure** — we write a **Notification log** row saying so and move on.
+> We don't retry, and the **Round** doesn't care."
+> **Dev:** "And if Teams is having a bad day?"
+> **Domain expert:** "**Transient failure** — the message goes back on
+> the queue and retries. Which means a **Round-closed notification**
+> might arrive twice. We'd rather the **Author** see it twice than never
+> see it at all."
 
 ## Flagged ambiguities
 
@@ -134,6 +186,23 @@ Terms introduced during the Extension Panel grill-me
   linked.
 - **adoId vs. email** — identity is always **adoId**; email is inert
   data used only for Teams resolution, never for authorization.
+- **"Notification" is three things** _(new)_ — keep them apart. The
+  **Round-opened / Round-closed notification** is the _domain event_; a
+  **Notification message** is the _queued unit of delivery_, one per
+  person; the DM is the _delivered artifact_. Never say "notification"
+  bare when the count matters — one event can be five messages.
+- **Two identities, two purposes** _(new)_ — **adoId** authorizes,
+  **Teams identity** delivers. A person can be perfectly authorized and
+  still **Unreachable**. Never resolve one from the other for
+  authorization purposes.
+- **Failed vs. Unreachable** _(new)_ — **Unreachable** means the person
+  never installed the bot; nothing is wrong and nothing will be retried.
+  `failed` in a **Notification log** row means delivery was attempted
+  and did not succeed. Do not report the first as the second.
+- **Duplicates over drops** _(new)_ — delivery is at-least-once by
+  deliberate choice. A duplicate DM is an accepted outcome, not a bug;
+  a _missing_ **Round-closed notification** is the failure the product
+  exists to prevent.
 - **Author / Reviewer / Bystander are per-round roles, not accounts**
   _(new)_ — a **Viewer**'s role is resolved against the current round;
   the same person can be **Author** of one round and **Reviewer** or
@@ -147,3 +216,8 @@ Terms introduced during the Extension Panel grill-me
 - **teamsIdOverride** UI (manual ADO↔Teams mapping) — schema field
   reserved, no UI yet
 - Interactive Teams card actions ("mark Done" from the card) — v2
+- Surfacing **Unreachable** reviewers in the **Panel** _(new)_ — the
+  **Notification log** holds the data, but no API read path or panel
+  state is modeled for it yet
+- Any channel or group-chat surface _(new)_ — the **Teams app package**
+  is personal scope only; there is no notion of a team-wide post
