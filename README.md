@@ -137,7 +137,7 @@ Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
 | Adaptive Card templates                                   | ✅ Complete      |
 | Monorepo scaffold                                         | ✅ Complete      |
 | 1. Round Lifecycle (data + API)                           | ✅ Complete      |
-| 2. Extension Panel                                        | ⬜ Not started   |
+| 2. Extension Panel                                        | ✅ Complete      |
 | 3. Teams Notifications (bot registration + static cards)  | ⬜ Not started   |
 | Round history view                                        | ⏸ Deferred       |
 | Reminder notifications                                    | ⏸ Deferred       |
