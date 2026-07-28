@@ -5,6 +5,9 @@
   "description": "PRSync Teams Bot Framework bot - required from v1 for personal 1:1 DMs (a Teams incoming webhook can't message individual users). v1 sends static, non-interactive Adaptive Cards; interactive card actions are deferred to v2.",
   "scripts": {
     "build": "echo \"@prsync/bot: not started yet\"",
-    "test": "echo \"@prsync/bot: not started yet\""
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
   }
 }
