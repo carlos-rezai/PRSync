@@ -1,0 +1,33 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.29",
+  "version": "0.1.0",
+  "id": "ebf437c0-2747-476c-ba3d-37576e0eaf40",
+  "developer": {
+    "name": "Carlos Rezai",
+    "websiteUrl": "https://github.com/carlos-rezai/PRSync",
+    "privacyUrl": "https://github.com/carlos-rezai/PRSync",
+    "termsOfUseUrl": "https://github.com/carlos-rezai/PRSync"
+  },
+  "name": {
+    "short": "PRSync",
+    "full": "PRSync - Coordinated Review Rounds"
+  },
+  "description": {
+    "short": "Know when a review round opens or closes, as a direct message.",
+    "full": "PRSync coordinates review rounds on spec-driven pull requests. When an author marks a pull request ready for review, PRSync sends each reviewer on that round a direct message; when the last reviewer marks themselves done and the round closes, it tells the author. Notifications are personal messages only - PRSync has no channel or group-chat surface."
+  },
+  "icons": {
+    "color": "icon-teams-color-192.png",
+    "outline": "icon-teams-outline-32.png"
+  },
+  "accentColor": "#4F46E5",
+  "bots": [
+    {
+      "botId": "00000000-0000-0000-0000-000000000000",
+      "scopes": ["personal"],
+      "isNotificationOnly": false,
+      "supportsFiles": false
+    }
+  ]
+}

@@ -5,10 +5,13 @@ node_modules/
 dist/
 build/
 *.vsix
+prsync-teams.zip
 
 # Azure Functions
 packages/api/bin/
 packages/api/obj/
+packages/bot/bin/
+packages/bot/obj/
 local.settings.json
 
 # Env
