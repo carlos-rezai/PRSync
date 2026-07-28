@@ -15,5 +15,10 @@
     "bestzip": "^3.0.1",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "@azure/data-tables": "^13.3.2",
+    "@azure/functions": "^4.16.2",
+    "botbuilder": "^4.23.3"
   }
 }
