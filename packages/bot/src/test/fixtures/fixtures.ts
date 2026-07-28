@@ -8,8 +8,12 @@
 // putting them inside any one layer would force imports upward and
 // across layers.
 
-import type { Activity } from "botbuilder";
-import type { CapturedIdentity, ConversationRef, TeamsIdentity } from "../../lib";
+import type { Activity, TeamsChannelAccount } from "botbuilder";
+import type {
+  CapturedIdentity,
+  ConversationRef,
+  TeamsIdentity,
+} from "../../lib";
 
 /**
  * The bot's own Teams account. An install is a `conversationUpdate` whose
@@ -104,10 +108,15 @@ export function makeTeamsIdentity(
  * The member profile the Teams connector answers with. Teams does not put
  * an email on the activity, so the bot has to ask — this is what it gets
  * back.
+ *
+ * Typed as the SDK's own account plus whatever else the connector sends
+ * (`objectId`, `tenantId`): the profile is what a mocked `getMember`
+ * resolves with, so it has to BE that type rather than be asserted into
+ * it at the call site.
  */
 export function makeTeamsMember(
   overrides: Record<string, unknown> = {}
-): Record<string, unknown> {
+): TeamsChannelAccount & Record<string, unknown> {
   return {
     id: PERSON.teamsUserId,
     name: PERSON.displayName,
@@ -127,7 +136,11 @@ function activityEnvelope(
   return {
     channelId: "msteams",
     serviceUrl: SERVICE_URL,
-    from: { id: PERSON.teamsUserId, name: PERSON.displayName, aadObjectId: PERSON.aadObjectId },
+    from: {
+      id: PERSON.teamsUserId,
+      name: PERSON.displayName,
+      aadObjectId: PERSON.aadObjectId,
+    },
     recipient: { id: BOT_ID, name: BOT_NAME },
     conversation: { id: conversationId, conversationType: "personal" },
   } as Partial<Activity> & { conversation: { id: string } };

@@ -1,0 +1,19 @@
+{
+  // What `npm run build` emits, as opposed to what `npm run typecheck`
+  // reads. Two things differ, both because the output is loaded by the
+  // Azure Functions host rather than by Vitest:
+  //
+  //   1. CommonJS with Node resolution. The host requires the entry
+  //      point, and the folder imports the barrels rely on
+  //      (`./services`, `../../lib`) only resolve to an `index.js` under
+  //      Node resolution — the same pair `packages/api` builds with.
+  //   2. No tests in `dist/`. They are the only files that reach for
+  //      `import.meta`, which CommonJS output cannot carry, and nothing
+  //      deployed should be loading them anyway.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node"
+  },
+  "exclude": ["src/**/*.test.ts", "src/test"]
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { TeamsInfo, TestAdapter, type TeamsChannelAccount } from "botbuilder";
+import { TeamsInfo, TestAdapter } from "botbuilder";
 import { createTeamsBot } from "./BotHost";
 import { createIdentityDirectory } from "../../services";
 import { makeIdentityRepository } from "../../test/fixtures/fakes";
@@ -32,9 +32,17 @@ import type { IdentityDirectory } from "../../services";
 // `membersRemoved`. Getting that backwards produces a bot that captures
 // nobody and looks entirely healthy doing it.
 
+// The fake is created in a hoisted block rather than reached for through
+// `vi.mocked(TeamsInfo.getMember)`: the mock factory is hoisted above the
+// imports, so the fake has to exist before them, and holding it by name
+// keeps the test from taking a reference to a method torn off its class.
+const { getMember } = vi.hoisted(() => ({
+  getMember: vi.fn<typeof TeamsInfo.getMember>(),
+}));
+
 vi.mock("botbuilder", async (importOriginal) => {
   const actual = await importOriginal<typeof import("botbuilder")>();
-  return { ...actual, TeamsInfo: { getMember: vi.fn() } };
+  return { ...actual, TeamsInfo: { getMember } };
 });
 
 let directory: IdentityDirectory;
@@ -46,9 +54,7 @@ function hostBot(): TestAdapter {
 }
 
 beforeEach(() => {
-  vi.mocked(TeamsInfo.getMember).mockResolvedValue(
-    makeTeamsMember() as TeamsChannelAccount
-  );
+  getMember.mockResolvedValue(makeTeamsMember());
   directory = createIdentityDirectory(makeIdentityRepository());
 });
 
