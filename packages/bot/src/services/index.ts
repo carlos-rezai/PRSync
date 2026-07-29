@@ -5,3 +5,4 @@
 // This layer is the only caller of storage/. See .claude/CLAUDE.md.
 
 export * from "./IdentityDirectory/IdentityDirectory";
+export * from "./NotificationDispatcher/NotificationDispatcher";

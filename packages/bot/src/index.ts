@@ -1,10 +1,20 @@
 import { app } from "@azure/functions";
-import { makeTeamsMessagesHandler, teamsMessagesOptions } from "./functions";
-import { createIdentityDirectory } from "./services";
+import {
+  makeNotificationWorkerHandler,
+  makeTeamsMessagesHandler,
+  notificationWorkerOptions,
+  teamsMessagesOptions,
+} from "./functions";
+import {
+  createIdentityDirectory,
+  createNotificationDispatcher,
+} from "./services";
 import { createTeamsIdentityRepository } from "./storage";
 import {
+  createBotAdapter,
   createMessagingEndpoint,
   createTeamsBot,
+  createTeamsSender,
   readBotConfig,
 } from "./teams";
 
@@ -26,12 +36,25 @@ if (connectionString.trim() === "") {
 const directory = createIdentityDirectory(
   createTeamsIdentityRepository(connectionString)
 );
-const endpoint = createMessagingEndpoint(
-  readBotConfig(process.env),
-  createTeamsBot(directory)
-);
+
+// One adapter, both directions: it validates the channel's JWT on every
+// inbound activity and authenticates the bot on every outbound DM.
+const config = readBotConfig(process.env);
+const adapter = createBotAdapter(config);
 
 app.http("teamsMessages", {
   ...teamsMessagesOptions,
-  handler: makeTeamsMessagesHandler(endpoint),
+  handler: makeTeamsMessagesHandler(
+    createMessagingEndpoint(adapter, createTeamsBot(directory))
+  ),
+});
+
+app.storageQueue("notificationWorker", {
+  ...notificationWorkerOptions(process.env),
+  handler: makeNotificationWorkerHandler(
+    createNotificationDispatcher(
+      directory,
+      createTeamsSender(adapter, config.appId)
+    )
+  ),
 });

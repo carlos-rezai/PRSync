@@ -87,6 +87,43 @@ export interface CardContent {
   authorName: string;
 }
 
+/** What happened on a round, and therefore which card it calls for. */
+export type NotificationEvent = "roundOpened" | "roundClosed";
+
+/** The one person a notification message is addressed to. */
+export interface NotificationRecipient {
+  /** The ADO identity id — the recipient half of the dedupe key. */
+  adoId: string;
+  /** As ADO spells it; `IdentityDirectory` owns normalizing it. */
+  email: string;
+  displayName: string;
+}
+
+/**
+ * One queued unit of delivery: exactly one DM to exactly one person,
+ * carrying everything the card needs. Never one message per round — a
+ * person nobody can reach must not be able to block the rest.
+ *
+ * Self-contained and denormalized on purpose: the bot holds no Rounds
+ * table, so a round that closes between enqueue and send cannot make a
+ * round-opened card render post-close state.
+ *
+ * Declared structurally narrower here, on the consumer side, than the
+ * producer's own type. The two packages agree by `schemaVersion`, not by
+ * a shared compiler — nothing links `packages/api` to `packages/bot`,
+ * and a message is read minutes after it was written by a build that may
+ * no longer be deployed.
+ */
+export interface NotificationMessage {
+  schemaVersion: number;
+  event: NotificationEvent;
+  /** `{projectId}:{repositoryId}:{pullRequestId}`. */
+  prKey: string;
+  roundNumber: number;
+  recipient: NotificationRecipient;
+  card: CardContent;
+}
+
 // The Adaptive Card subset PRSync builds, typed rather than pulled in
 // from `adaptivecards`: v1 emits two static cards out of a headline, a
 // fact set and one link-out button, and a narrow type is what makes the

@@ -7,3 +7,4 @@
 // .claude/CLAUDE.md.
 
 export * from "./BotHost/BotHost";
+export * from "./TeamsSender/TeamsSender";

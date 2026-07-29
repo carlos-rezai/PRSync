@@ -5,4 +5,5 @@
 // (src/index.ts) imports them from here, never from a module's internal
 // file. See .claude/CLAUDE.md.
 
+export * from "./notificationWorker/notificationWorker";
 export * from "./teamsMessages/teamsMessages";

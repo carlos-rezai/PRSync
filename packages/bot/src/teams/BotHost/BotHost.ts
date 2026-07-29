@@ -242,12 +242,17 @@ class CollectedResponse implements BotFrameworkResponse {
   }
 }
 
-/** The adapter, wired to the bot and to the settings it authenticates with. */
-export function createMessagingEndpoint(
-  config: BotConfig,
-  bot: ActivityHandler
-): MessagingEndpoint {
-  const adapter = new CloudAdapter(
+/**
+ * The adapter, authenticated with the bot's settings.
+ *
+ * Built once and shared: it is both the inbound path (validating the
+ * channel's JWT on every activity) and the outbound one (opening a
+ * proactive 1:1 conversation to send a card), and a second instance
+ * would be a second connector-client cache authenticating as the same
+ * bot.
+ */
+export function createBotAdapter(config: BotConfig): CloudAdapter {
+  return new CloudAdapter(
     new ConfigurationBotFrameworkAuthentication(
       {
         MicrosoftAppId: config.appId,
@@ -261,7 +266,13 @@ export function createMessagingEndpoint(
       })
     )
   );
+}
 
+/** The inbound half of the adapter, wired to the bot that routes activities. */
+export function createMessagingEndpoint(
+  adapter: CloudAdapter,
+  bot: ActivityHandler
+): MessagingEndpoint {
   return {
     async process(request: HttpRequest): Promise<HttpResponseInit> {
       const response = new CollectedResponse();
