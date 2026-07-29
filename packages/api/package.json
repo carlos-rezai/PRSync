@@ -3,10 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "description": "PRSync Azure Functions API - round state, ADO service hooks, Teams notifications",
-  "main": "dist/src/functions/**/*.js",
+  "main": "dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "watch": "tsc -w -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "watch": "tsc -w -p tsconfig.build.json",
     "start": "func start",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint .",

@@ -1,4 +1,5 @@
 import type {
+  HttpFunctionOptions,
   HttpRequest,
   HttpResponseInit,
   InvocationContext,
@@ -23,6 +24,26 @@ import {
 // has NO author `adoId` field (reject-unknown), so authoring a round as
 // someone else is inexpressible. Tokens and reviewer/author emails never
 // reach the logs; correlation is on the PR key.
+
+/**
+ * Where the composition root mounts this handler. It lives beside the
+ * behaviour it serves rather than only in `src/index.ts`, because a
+ * factory nothing registers is dead code every test below still passes on.
+ *
+ * Anonymous of necessity, and the same reasoning as the bot's
+ * `/api/messages`: the only caller is a browser-side panel, so a Function
+ * key would have to ship inside the extension bundle, which makes it not a
+ * secret. This is NOT an unauthenticated endpoint — every handler resolves
+ * the caller's ADO bearer token through the `IdentityResolver` seam and
+ * answers 401 when it yields nothing — but the two facts have to be read
+ * together, which is why the level is pinned here rather than left to a
+ * deployment setting nobody diffs.
+ */
+export const openRoundOptions: Omit<HttpFunctionOptions, "handler"> = {
+  methods: ["POST"],
+  authLevel: "anonymous",
+  route: "prs/{prKey}/rounds",
+};
 
 // Reject bodies larger than this before parsing — a cheap DoS guard and
 // a hard cap well above any legitimate reviewer list.

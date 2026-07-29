@@ -8,3 +8,4 @@
 export * from "./RoundService/RoundService";
 export * from "./NotificationPort/NotificationPort";
 export * from "./IdentityResolver/IdentityResolver";
+export * from "./AdoIdentityResolver/AdoIdentityResolver";

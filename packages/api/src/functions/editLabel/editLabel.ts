@@ -1,4 +1,5 @@
 import type {
+  HttpFunctionOptions,
   HttpRequest,
   HttpResponseInit,
   InvocationContext,
@@ -17,6 +18,17 @@ import {
 // seam (401 when it yields nothing), calls the service, and maps its
 // result/errors to HTTP. The author-only 403 (NOT_AUTHOR) check is the
 // service's job — the function passes the resolved caller through.
+
+/**
+ * Where the composition root mounts this handler — see the note on
+ * `openRoundOptions` for why the auth level is anonymous and why that is
+ * not the same as unauthenticated.
+ */
+export const editLabelOptions: Omit<HttpFunctionOptions, "handler"> = {
+  methods: ["PATCH"],
+  authLevel: "anonymous",
+  route: "prs/{prKey}/rounds/{n}",
+};
 
 // Reject bodies larger than this before parsing — a cheap DoS guard.
 const MAX_BODY_BYTES = 1_000_000;

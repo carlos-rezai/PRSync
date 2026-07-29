@@ -1,4 +1,5 @@
 import type {
+  HttpFunctionOptions,
   HttpRequest,
   HttpResponseInit,
   InvocationContext,
@@ -16,6 +17,17 @@ import {
 // nothing), calls the service, and maps its result/errors to HTTP. The
 // author-only 403 (NOT_AUTHOR) check is the service's job — the function
 // passes the resolved caller through and never authorizes itself.
+
+/**
+ * Where the composition root mounts this handler — see the note on
+ * `openRoundOptions` for why the auth level is anonymous and why that is
+ * not the same as unauthenticated.
+ */
+export const cancelRoundOptions: Omit<HttpFunctionOptions, "handler"> = {
+  methods: ["POST"],
+  authLevel: "anonymous",
+  route: "prs/{prKey}/rounds/{n}/cancel",
+};
 
 export function makeCancelRoundHandler(
   service: RoundService,

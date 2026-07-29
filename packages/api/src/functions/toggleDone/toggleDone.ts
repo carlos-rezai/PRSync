@@ -1,4 +1,5 @@
 import type {
+  HttpFunctionOptions,
   HttpRequest,
   HttpResponseInit,
   InvocationContext,
@@ -19,6 +20,17 @@ import {
 // target is *always* the resolved caller — the function never authorizes
 // against the body, and the 403 "not a snapshotted reviewer" check is
 // the service's job.
+
+/**
+ * Where the composition root mounts this handler — see the note on
+ * `openRoundOptions` for why the auth level is anonymous and why that is
+ * not the same as unauthenticated.
+ */
+export const toggleDoneOptions: Omit<HttpFunctionOptions, "handler"> = {
+  methods: ["PATCH"],
+  authLevel: "anonymous",
+  route: "prs/{prKey}/rounds/{n}/done",
+};
 
 // Reject bodies larger than this before parsing — a cheap DoS guard.
 const MAX_BODY_BYTES = 1_000_000;

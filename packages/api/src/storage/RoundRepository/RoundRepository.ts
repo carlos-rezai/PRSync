@@ -1,4 +1,4 @@
-import { odata, type TableClient, type TableEntity } from "@azure/data-tables";
+import { odata, TableClient, type TableEntity } from "@azure/data-tables";
 import type { Phase, Round, RoundReviewer, RoundStatus } from "../../lib";
 
 // The repository is the ONLY layer that touches @azure/data-tables.
@@ -52,6 +52,13 @@ type RoundEntity = TableEntity<{
   cancelledAt?: string;
   schemaVersion: number;
 }>;
+
+/**
+ * The table every round is stored in. A contract with whoever provisioned
+ * the storage account — renaming it here leaves the rows somewhere the API
+ * no longer looks.
+ */
+export const ROUNDS_TABLE_NAME = "Rounds";
 
 const ROW_KEY_WIDTH = 4;
 
@@ -163,6 +170,25 @@ export class TableStorageRoundRepository implements RoundRepository {
       throw error;
     }
   }
+}
+
+/**
+ * The repository over the `Rounds` table of the given account. The
+ * composition root asks for this rather than a `TableClient`, so
+ * `@azure/data-tables` stays inside this layer — otherwise the "storage/
+ * is the only layer that touches the SDK" rule would hold for every layer
+ * except the one that assembles them all.
+ *
+ * A malformed connection string throws here, at host start and next to the
+ * setting that caused it, rather than surfacing later as one 500 per
+ * request from inside this layer.
+ */
+export function createRoundRepository(
+  connectionString: string
+): RoundRepository {
+  return new TableStorageRoundRepository(
+    TableClient.fromConnectionString(connectionString, ROUNDS_TABLE_NAME)
+  );
 }
 
 // The @azure/data-tables SDK surfaces HTTP faults as RestError-shaped

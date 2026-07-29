@@ -1,4 +1,5 @@
 import type {
+  HttpFunctionOptions,
   HttpRequest,
   HttpResponseInit,
   InvocationContext,
@@ -12,6 +13,20 @@ import type { RoundService, IdentityResolver } from "../../services";
 // storage call. This read serves reviewer emails (PII), so it requires a
 // valid ADO bearer token exactly like the mutating endpoints: an
 // unresolved identity is 401 BEFORE any storage access.
+
+/**
+ * Where the composition root mounts this handler — see the note on
+ * `openRoundOptions` for why the auth level is anonymous and why that is
+ * not the same as unauthenticated.
+ *
+ * `current` and `{n}` are siblings under `rounds/`. They never collide,
+ * because this is the only GET of the five.
+ */
+export const getCurrentRoundOptions: Omit<HttpFunctionOptions, "handler"> = {
+  methods: ["GET"],
+  authLevel: "anonymous",
+  route: "prs/{prKey}/rounds/current",
+};
 
 export function makeGetCurrentRoundHandler(
   service: RoundService,
