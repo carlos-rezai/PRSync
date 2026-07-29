@@ -20,9 +20,10 @@ import type {
   HttpResponseInit,
   InvocationContext,
 } from "@azure/functions";
-import type { TeamsIdentity } from "../../lib";
+import type { AdaptiveCard, ConversationRef, TeamsIdentity } from "../../lib";
+import type { NotificationDispatcher } from "../../services";
 import type { TeamsIdentityRepository } from "../../storage";
-import type { MessagingEndpoint } from "../../teams";
+import type { MessagingEndpoint, TeamsSender } from "../../teams";
 
 /**
  * The same shape as `T`, with every method replaced by a `vi.fn` typed to
@@ -69,6 +70,51 @@ export function makeIdentityRepository(): InMemoryTeamsIdentityRepository {
       rows.delete(email);
       return Promise.resolve();
     },
+  };
+}
+
+/** One DM the bot handed to Teams: who it went to, and what it said. */
+export interface RecordedSend {
+  conversationReference: ConversationRef;
+  card: AdaptiveCard;
+}
+
+/** A sender a test can read back, as well as drive. */
+export interface RecordingTeamsSender extends TeamsSender {
+  /**
+   * The DMs, in the order they were sent. A property rather than a spy's
+   * call list because "who was messaged, and with what" is the entire
+   * observable outcome of a dispatch — it should read like the fact it
+   * is, not like an assertion about a mock.
+   */
+  readonly sends: RecordedSend[];
+}
+
+/**
+ * The seam that keeps Bot Framework out of the dispatcher's test. The
+ * real sender opens a proactive 1:1 conversation and posts a card
+ * attachment; this one writes down that it was asked to, which is the
+ * whole reason the port is a single narrow operation.
+ */
+export function makeTeamsSender(): RecordingTeamsSender {
+  const sends: RecordedSend[] = [];
+  return {
+    sends,
+    send(conversationReference: ConversationRef, card: AdaptiveCard): Promise<void> {
+      sends.push({ conversationReference, card });
+      return Promise.resolve();
+    },
+  };
+}
+
+/**
+ * The dispatcher, as the queue-triggered function sees it. The function's
+ * whole job is to hand one message over, so the fake only has to be able
+ * to say what it was handed.
+ */
+export function makeNotificationDispatcher(): Faked<NotificationDispatcher> {
+  return {
+    dispatch: vi.fn((): Promise<void> => Promise.resolve()),
   };
 }
 

@@ -13,6 +13,7 @@ import type {
   CapturedIdentity,
   CardContent,
   ConversationRef,
+  NotificationMessage,
   TeamsIdentity,
 } from "../../lib";
 
@@ -48,6 +49,18 @@ export const PERSON_EMAIL_VARIANTS = [
   "\tDana.Reviewer@Contoso.com\n",
 ] as const;
 
+/**
+ * A SECOND teammate who has also installed PRSync. A delivery test that
+ * knows of only one installed person cannot tell "sent to the addressed
+ * recipient" from "sent to whoever happened to be in the directory".
+ */
+export const OTHER_PERSON = {
+  teamsUserId: "29:9zYxWvUtSrQpOnMlKjIhGfEdCbA9876543210",
+  aadObjectId: "99887766-5544-3322-1100-ffeeddccbbaa",
+  displayName: "Sam Author",
+  email: "sam.author@contoso.com",
+} as const;
+
 /** Someone who never installed the app. */
 export const STRANGER_EMAIL = "morgan.bystander@contoso.com";
 
@@ -63,16 +76,20 @@ export const CONVERSATION_ID = "a:1personal-chat-with-dana";
  */
 export const REFRESHED_CONVERSATION_ID = "a:2personal-chat-with-dana-moved";
 
+/** The 1:1 chat the OTHER installed teammate's DMs arrive in. */
+export const OTHER_CONVERSATION_ID = "a:3personal-chat-with-sam";
+
 /** A conversation reference as it crosses PRSync's own layers: opaque. */
 export function makeConversationRef(
-  conversationId: string = CONVERSATION_ID
+  conversationId: string = CONVERSATION_ID,
+  person: { teamsUserId: string; displayName: string } = PERSON
 ): ConversationRef {
   return {
     channelId: "msteams",
     serviceUrl: SERVICE_URL,
     conversation: { id: conversationId, conversationType: "personal" },
     bot: { id: BOT_ID, name: BOT_NAME },
-    user: { id: PERSON.teamsUserId, name: PERSON.displayName },
+    user: { id: person.teamsUserId, name: person.displayName },
   };
 }
 
@@ -203,6 +220,45 @@ export const UNSAFE_CARD_URLS = [
   "   ",
   "",
 ] as const;
+
+/**
+ * A well-formed PR key — `{projectId}:{repositoryId}:{pullRequestId}`.
+ * The same value `packages/api`'s fixtures use, because the message that
+ * crosses the queue is the one place the two packages have to agree.
+ */
+export const PR_KEY =
+  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:42";
+
+/** The ADO identity of the person a message is addressed to. */
+export const RECIPIENT_ADO_ID = "3c2b1a09-0817-1625-2423-222120191817";
+
+/**
+ * One queued unit of delivery: exactly one DM to exactly one person,
+ * carrying everything the card needs.
+ *
+ * Self-contained on purpose — the bot never reads the Rounds table, so a
+ * round that closes between enqueue and send cannot make a round-opened
+ * card render post-close state. That is why `card` is a value here and
+ * not a round id: a test that had to look a round up would be testing a
+ * coupling the design forbids.
+ */
+export function makeNotificationMessage(
+  overrides: Partial<NotificationMessage> = {}
+): NotificationMessage {
+  return {
+    schemaVersion: 1,
+    event: "roundOpened",
+    prKey: PR_KEY,
+    roundNumber: 2,
+    recipient: {
+      adoId: RECIPIENT_ADO_ID,
+      email: PERSON.email,
+      displayName: PERSON.displayName,
+    },
+    card: CARD_CONTENT,
+    ...overrides,
+  };
+}
 
 /** The fields every inbound activity carries, whatever its type. */
 function activityEnvelope(
