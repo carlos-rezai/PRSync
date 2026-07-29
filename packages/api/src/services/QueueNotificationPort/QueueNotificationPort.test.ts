@@ -6,11 +6,7 @@ import {
 } from "./QueueNotificationPort";
 import { RoundService } from "../RoundService/RoundService";
 import type { RoundRepository } from "../../storage";
-import type {
-  IncomingReviewer,
-  Round,
-  RoundReviewer,
-} from "../../lib";
+import type { IncomingReviewer, Round, RoundReviewer } from "../../lib";
 import { PR_KEY } from "../../test/fixtures/fixtures";
 
 // Behavioural tests over the producing half of the notification path —
@@ -73,7 +69,8 @@ function makeRound(overrides: Partial<Round> = {}): Round {
   };
 }
 
-interface FakeQueue {
+/** A `QueueProducer`, so the fake is checked against the real seam. */
+interface FakeQueue extends QueueProducer {
   /** Every `messageText` handed to the queue, in order, exactly as sent. */
   readonly sent: string[];
   sendMessage: Mock<(messageText: string) => Promise<unknown>>;
@@ -395,12 +392,20 @@ class InMemoryRounds implements RoundRepository {
   }
 }
 
+/**
+ * A reviewer as ADO hands one over at open time. Optional, so that the
+ * gating set is every tracked reviewer and a quorum of 2 out of 3 closes
+ * the round with the third still pending — which is the transition these
+ * tests need to see notified. Three REQUIRED reviewers would need all
+ * three Done to close (docs/ubiquitous-language.md, "Quorum"), and the
+ * round would simply stay open.
+ */
 function incoming(adoId: string): IncomingReviewer {
   return {
     adoId,
     email: `${adoId}@example.com`,
     displayName: `Reviewer ${adoId}`,
-    isRequired: true,
+    isRequired: false,
     isContainer: false,
   };
 }

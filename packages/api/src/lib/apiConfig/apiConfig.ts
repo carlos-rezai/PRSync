@@ -25,14 +25,32 @@
  */
 export const DEFAULT_QUORUM = 2;
 
+/**
+ * The queue the notifications go onto when nothing is configured. Must
+ * match the bot worker's own default — the two apps meet here and nowhere
+ * else, so a disagreement is a queue that fills and DMs that never arrive.
+ */
+export const DEFAULT_NOTIFICATION_QUEUE_NAME = "prsync-notifications";
+
 const SETTINGS = {
   tablesConnectionString: "AZURE_TABLES_CONNECTION_STRING",
+  queuesConnectionString: "AZURE_QUEUES_CONNECTION_STRING",
+  notificationQueueName: "PRSYNC_NOTIFICATION_QUEUE_NAME",
   defaultQuorum: "PRSYNC_DEFAULT_QUORUM",
 } as const;
 
 export interface ApiConfig {
   /** The Table Storage account the `Rounds` table lives in. */
   tablesConnectionString: string;
+  /**
+   * The Queue Storage account the notification queue lives in. A separate
+   * setting from the tables one on purpose: the two Function Apps may
+   * split storage accounts, and the producer has to be pointable at
+   * whichever account the bot's trigger is listening on.
+   */
+  queuesConnectionString: string;
+  /** The queue the notification producer writes to. */
+  notificationQueueName: string;
   /** The quorum a round is opened with. */
   defaultQuorum: number;
 }
@@ -57,8 +75,26 @@ export function readApiConfig(
     );
   }
 
+  // Fails at start for the same reason, and for a sharper one: an API
+  // that starts perfectly healthy and quietly notifies nobody is the
+  // exact failure this product exists to prevent. Nothing lazy would
+  // discover it — no request 500s and no round misbehaves; the DMs simply
+  // never arrive.
+  const queuesConnectionString =
+    env[SETTINGS.queuesConnectionString]?.trim() ?? "";
+  if (queuesConnectionString === "") {
+    throw new Error(
+      `${SETTINGS.queuesConnectionString} is not set. The API cannot queue a notification without it.`
+    );
+  }
+
+  const queueName = env[SETTINGS.notificationQueueName]?.trim() ?? "";
+
   return {
     tablesConnectionString: connectionString,
+    queuesConnectionString,
+    notificationQueueName:
+      queueName === "" ? DEFAULT_NOTIFICATION_QUEUE_NAME : queueName,
     defaultQuorum: readQuorum(env[SETTINGS.defaultQuorum]),
   };
 }

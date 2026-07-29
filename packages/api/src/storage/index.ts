@@ -6,3 +6,4 @@
 // layer that touches @azure/data-tables directly. See .claude/CLAUDE.md.
 
 export * from "./RoundRepository/RoundRepository";
+export * from "./NotificationQueue/NotificationQueue";

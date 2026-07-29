@@ -1,4 +1,4 @@
-import { app } from "@azure/functions";
+import { app, InvocationContext } from "@azure/functions";
 import {
   cancelRoundOptions,
   editLabelOptions,
@@ -14,10 +14,10 @@ import {
 import { readApiConfig } from "./lib";
 import {
   createAdoIdentityResolver,
-  NoopNotificationPort,
+  QueueNotificationPort,
   RoundService,
 } from "./services";
-import { createRoundRepository } from "./storage";
+import { createNotificationQueue, createRoundRepository } from "./storage";
 
 // The composition root: the one place that reads the environment, decides
 // which implementation of each seam is live, and mounts the five HTTP
@@ -36,14 +36,40 @@ import { createRoundRepository } from "./storage";
 
 const config = readApiConfig(process.env);
 
+/**
+ * Where a notification failure goes.
+ *
+ * The object graph is built here, at host start, so there is no
+ * invocation to log against — and a context constructed outside one falls
+ * back to the worker's console, which the Functions host captures into
+ * the app's logs. That is the only logging surface available at
+ * composition time, and it is the SDK's own fallback rather than a
+ * `console` call of ours.
+ */
+const notificationLog = new InvocationContext({
+  functionName: "notifications",
+});
+
 const service = new RoundService({
   // A repository, not a `TableClient`: `@azure/data-tables` stays inside
   // storage/, including here.
   repository: createRoundRepository(config.tablesConnectionString),
   // The ONE line that decides which notification port is live. Nothing
-  // else in the package names an implementation, so swapping the Noop
-  // stub for the real queue producer is this line and nothing more.
-  notifications: new NoopNotificationPort(),
+  // else in the package names an implementation, so this is the whole of
+  // the change from the Noop stub to the real queue producer — the stub
+  // stays in the codebase for tests and local runs where the queue is not
+  // the point.
+  notifications: new QueueNotificationPort({
+    // A queue, not a `QueueClient`: `@azure/storage-queue` stays inside
+    // storage/ for the same reason the tables SDK does.
+    queue: createNotificationQueue(
+      config.queuesConnectionString,
+      config.notificationQueueName
+    ),
+    logError: (message, error) => {
+      notificationLog.error(message, error);
+    },
+  }),
   defaultQuorum: config.defaultQuorum,
 });
 

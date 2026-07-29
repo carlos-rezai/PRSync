@@ -57,11 +57,31 @@ const reviewerSchema = z.strictObject({
   isContainer: z.boolean(),
 });
 
+/**
+ * The stored `prUrl` is what the bot puts behind the card's
+ * `Action.OpenUrl` button, so it is caller-supplied text that ends up one
+ * click away from a reviewer. `javascript:`, `data:` and `file:` are all
+ * URLs a parser accepts and a card must never carry, and a protocol-
+ * relative `//host/path` is not an absolute URL at all.
+ *
+ * The bot's `safeCardUrl` already omits the action rather than emitting a
+ * hostile one; this is the other end of the same defence — refuse it here
+ * so a hostile URL is never stored in the first place, and neither half
+ * depends on the other being correct.
+ */
+const httpsUrl = z.string().refine((value) => {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}, "prUrl must be an https: URL.");
+
 const openRoundBodySchema = z.strictObject({
   phase: z.enum(["spec", "implementation"]),
   reviewers: z.array(reviewerSchema),
   prTitle: z.string(),
-  prUrl: z.string(),
+  prUrl: httpsUrl,
   // Display/Teams data only — never an adoId. The authoritative author
   // identity is the resolved caller's adoId (reject-unknown drops any
   // attempt to smuggle one in via the body).
