@@ -143,7 +143,7 @@ export function makeTeamsMember(
  */
 export const CARD_CONTENT: CardContent = {
   roundLabel: "Round 2 — Implementation Review",
-  prTitle: "Add reviewer done-toggle endpoint",
+  prTitle: "Snapshot the reviewer list when a round opens",
   prUrl: "https://dev.azure.com/contoso/PRSync/_git/PRSync/pullrequest/42",
   authorName: "Sam Author",
 };

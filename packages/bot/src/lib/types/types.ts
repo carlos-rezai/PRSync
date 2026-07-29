@@ -73,3 +73,72 @@ export interface TeamsIdentity {
 export interface ResolvedIdentity extends CapturedIdentity {
   updatedAt: string;
 }
+
+/**
+ * What a notification carries for a card to render — a self-contained
+ * snapshot of the round at the moment it opened or closed, never a
+ * reference back to one. A DM is read minutes or hours later, and it
+ * must say what was true when it was sent.
+ */
+export interface CardContent {
+  roundLabel: string;
+  prTitle: string;
+  prUrl: string;
+  authorName: string;
+}
+
+// The Adaptive Card subset PRSync builds, typed rather than pulled in
+// from `adaptivecards`: v1 emits two static cards out of a headline, a
+// fact set and one link-out button, and a narrow type is what makes the
+// frozen handoff design checkable against the builders.
+
+/** One row of a `FactSet`: a label and the value beside it. */
+export interface CardFact {
+  title: string;
+  value: string;
+}
+
+/** The label/value block under a card's headline. */
+export interface CardFactSet {
+  type: "FactSet";
+  facts: CardFact[];
+}
+
+/** A line of text. Renders limited markdown — hence `escapeCardText`. */
+export interface CardTextBlock {
+  type: "TextBlock";
+  text: string;
+  weight?: "Lighter" | "Default" | "Bolder";
+  size?: "Small" | "Default" | "Medium" | "Large" | "ExtraLarge";
+  /** Long values wrap instead of being clipped at the card's width. */
+  wrap?: boolean;
+  color?:
+    "Default" | "Dark" | "Light" | "Accent" | "Good" | "Warning" | "Attention";
+}
+
+/** Everything a PRSync card puts in its `body`. */
+export type CardElement = CardTextBlock | CardFactSet;
+
+/**
+ * A button. `Action.OpenUrl` is the only kind v1 emits — the cards are
+ * link-out only, and interactive actions are deferred to v2.
+ */
+export interface CardAction {
+  type: "Action.OpenUrl";
+  title: string;
+  url: string;
+}
+
+/**
+ * A whole card, as the bot hands it to Teams.
+ *
+ * `actions` is optional because an unsafe `prUrl` produces a card with
+ * no button at all rather than a hostile one — see `safeCardUrl`.
+ */
+export interface AdaptiveCard {
+  type: "AdaptiveCard";
+  $schema: string;
+  version: string;
+  body: CardElement[];
+  actions?: CardAction[];
+}

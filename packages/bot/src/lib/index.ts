@@ -5,5 +5,7 @@
 // siblings import each other by direct path, never through this barrel,
 // to avoid import cycles. See .claude/CLAUDE.md.
 
+export * from "./escapeCardText/escapeCardText";
 export * from "./normalizeEmail/normalizeEmail";
+export * from "./safeCardUrl/safeCardUrl";
 export * from "./types/types";
