@@ -57,6 +57,14 @@ import {
 /** ISO 8601, to the millisecond, in UTC — the project's date rule. */
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
+/**
+ * The `at` of an outcome the dispatcher has just written: some instant,
+ * spelled the way the project spells every date. Named once because
+ * Vitest types its matchers as `any`, and an `any` inside an otherwise
+ * exact expected row is worth confining to one line.
+ */
+const AT_SOME_INSTANT = expect.stringMatching(ISO_TIMESTAMP) as string;
+
 interface Harness {
   dispatcher: NotificationDispatcher;
   sender: RecordingTeamsSender;
@@ -74,7 +82,8 @@ interface HarnessOptions {
 
 async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
   const directory = createIdentityDirectory(makeIdentityRepository());
-  for (const identity of options.installed ?? []) await directory.capture(identity);
+  for (const identity of options.installed ?? [])
+    await directory.capture(identity);
 
   const sender = options.sender ?? makeTeamsSender();
   const log = options.log ?? makeNotificationLog();
@@ -129,7 +138,9 @@ describe("NotificationDispatcher", () => {
   it("sends a reviewer the round-opened card as a 1:1 DM", async () => {
     const { dispatcher, sender } = await withInstalled(makeCapturedIdentity());
 
-    await dispatcher.dispatch(makeNotificationMessage({ event: "roundOpened" }));
+    await dispatcher.dispatch(
+      makeNotificationMessage({ event: "roundOpened" })
+    );
 
     // The card is asserted as the reviewer builder's output rather than as
     // hand-written JSON: the builders are already pinned to the frozen
@@ -147,7 +158,9 @@ describe("NotificationDispatcher", () => {
   it("sends the author the round-closed card as a 1:1 DM", async () => {
     const { dispatcher, sender } = await withInstalled(makeCapturedIdentity());
 
-    await dispatcher.dispatch(makeNotificationMessage({ event: "roundClosed" }));
+    await dispatcher.dispatch(
+      makeNotificationMessage({ event: "roundClosed" })
+    );
 
     // The "safe to proceed" signal — the one message this whole product
     // exists to deliver, and the one that must never read as another
@@ -257,7 +270,7 @@ describe("NotificationDispatcher", () => {
         status: "sent",
         recipientEmail: message.recipient.email,
         recipientDisplayName: message.recipient.displayName,
-        at: expect.stringMatching(ISO_TIMESTAMP) as unknown as string,
+        at: AT_SOME_INSTANT,
       },
     ]);
   });
@@ -310,7 +323,9 @@ describe("NotificationDispatcher", () => {
       expect.objectContaining({ card: authorCard(message.card) }),
     ]);
     expect(log.writes).toEqual([
-      expect.objectContaining({ status: "sent" }) as unknown as NotificationLogEntry,
+      expect.objectContaining({
+        status: "sent",
+      }) as unknown as NotificationLogEntry,
     ]);
   });
 
@@ -334,7 +349,9 @@ describe("NotificationDispatcher", () => {
     // conversation to open, and throwing would spend the retry budget
     // re-learning that and end in the poison queue. Nothing is wrong, and
     // the round does not care.
-    const { dispatcher, sender, log } = await withInstalled(makeCapturedIdentity());
+    const { dispatcher, sender, log } = await withInstalled(
+      makeCapturedIdentity()
+    );
     const message = makeNotificationMessage({
       recipient: {
         adoId: "11112222-3333-4444-5555-666677778888",
@@ -353,7 +370,7 @@ describe("NotificationDispatcher", () => {
         status: "no-identity",
         recipientEmail: STRANGER_EMAIL,
         recipientDisplayName: "Morgan Bystander",
-        at: expect.stringMatching(ISO_TIMESTAMP) as unknown as string,
+        at: AT_SOME_INSTANT,
       },
     ]);
   });
@@ -364,7 +381,9 @@ describe("NotificationDispatcher", () => {
     // terminal: retrying will not make it readable, and a future schema
     // change should degrade quietly rather than cycle a whole round's
     // fan-out through the poison queue.
-    const { dispatcher, sender, log } = await withInstalled(makeCapturedIdentity());
+    const { dispatcher, sender, log } = await withInstalled(
+      makeCapturedIdentity()
+    );
 
     await expect(
       dispatcher.dispatch(makeNotificationMessage({ schemaVersion: 2 }))
@@ -383,7 +402,9 @@ describe("NotificationDispatcher", () => {
     // attempted, so this is the same outcome as never having installed
     // the bot rather than a delivery that went wrong.
     for (const email of UNRESOLVABLE_EMAILS) {
-      const { dispatcher, sender, log } = await withInstalled(makeCapturedIdentity());
+      const { dispatcher, sender, log } = await withInstalled(
+        makeCapturedIdentity()
+      );
       const message = makeNotificationMessage({
         recipient: { ...makeNotificationMessage().recipient, email },
       });

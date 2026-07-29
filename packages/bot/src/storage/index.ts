@@ -5,4 +5,5 @@
 // module's internal file. This is the only layer that touches
 // @azure/data-tables directly. See .claude/CLAUDE.md.
 
+export * from "./NotificationLogRepository/NotificationLogRepository";
 export * from "./TeamsIdentityRepository/TeamsIdentityRepository";

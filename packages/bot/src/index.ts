@@ -9,7 +9,10 @@ import {
   createIdentityDirectory,
   createNotificationDispatcher,
 } from "./services";
-import { createTeamsIdentityRepository } from "./storage";
+import {
+  createNotificationLogRepository,
+  createTeamsIdentityRepository,
+} from "./storage";
 import {
   createBotAdapter,
   createMessagingEndpoint,
@@ -54,7 +57,8 @@ app.storageQueue("notificationWorker", {
   handler: makeNotificationWorkerHandler(
     createNotificationDispatcher(
       directory,
-      createTeamsSender(adapter, config.appId)
+      createTeamsSender(adapter, config.appId),
+      createNotificationLogRepository(connectionString)
     )
   ),
 });

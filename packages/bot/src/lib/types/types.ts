@@ -124,6 +124,37 @@ export interface NotificationMessage {
   card: CardContent;
 }
 
+/**
+ * How one delivery attempt ended.
+ *
+ * `sent` and `no-identity` are settled — a redelivery of the same message
+ * is suppressed by either. `failed` is a record, not a suppression: it is
+ * the only outcome a retry can improve on, so a `failed` row must still
+ * let the next attempt through.
+ */
+export type DeliveryStatus = "sent" | "no-identity" | "failed";
+
+/**
+ * A `NotificationLog` row: one recipient's outcome for one event on one
+ * round. `prKey` is the partition — round numbers restart per PR — and
+ * `dedupeKey` is the row key within it.
+ *
+ * It carries who was addressed alongside the outcome so that "who was
+ * notified for round 4" is answerable from the rows themselves; an ADO
+ * identity GUID alone answers nothing anybody can read.
+ */
+export interface NotificationLogEntry {
+  prKey: string;
+  /** `{roundNumber}|{event}|{recipientAdoId}` — see `dedupeKey`. */
+  dedupeKey: string;
+  status: DeliveryStatus;
+  /** The address as the message spelled it. */
+  recipientEmail: string;
+  recipientDisplayName: string;
+  /** ISO timestamp of the attempt this row records. */
+  at: string;
+}
+
 // The Adaptive Card subset PRSync builds, typed rather than pulled in
 // from `adaptivecards`: v1 emits two static cards out of a headline, a
 // fact set and one link-out button, and a narrow type is what makes the
