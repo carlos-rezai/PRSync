@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeEditLabelHandler } from "./editLabel";
+import { makeEditLabelHandler, editLabelOptions } from "./editLabel";
 import {
   RoundService,
   RoundServiceError,
@@ -182,5 +182,19 @@ describe("editLabel handler — success and error mapping", () => {
       makeContext()
     );
     expect(res.status).toBe(503);
+  });
+});
+
+// Where this handler is mounted, pinned beside the behaviour it serves —
+// see the note in openRound.test.ts for why the auth level is anonymous
+// and why that is not the same as unauthenticated.
+
+describe("editLabel registration", () => {
+  it("mounts PATCH at the round itself", () => {
+    expect(editLabelOptions).toMatchObject({
+      methods: ["PATCH"],
+      authLevel: "anonymous",
+      route: "prs/{prKey}/rounds/{n}",
+    });
   });
 });

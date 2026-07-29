@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeToggleDoneHandler } from "./toggleDone";
+import { makeToggleDoneHandler, toggleDoneOptions } from "./toggleDone";
 import {
   RoundService,
   RoundServiceError,
@@ -207,5 +207,19 @@ describe("toggleDone handler — success and error mapping", () => {
       makeContext()
     );
     expect(res.status).toBe(503);
+  });
+});
+
+// Where this handler is mounted, pinned beside the behaviour it serves —
+// see the note in openRound.test.ts for why the auth level is anonymous
+// and why that is not the same as unauthenticated.
+
+describe("toggleDone registration", () => {
+  it("mounts PATCH at the round's done sub-resource", () => {
+    expect(toggleDoneOptions).toMatchObject({
+      methods: ["PATCH"],
+      authLevel: "anonymous",
+      route: "prs/{prKey}/rounds/{n}/done",
+    });
   });
 });

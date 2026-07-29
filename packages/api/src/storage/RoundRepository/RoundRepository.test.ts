@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { TableClient } from "@azure/data-tables";
 import {
+  createRoundRepository,
   PreconditionFailedError,
+  ROUNDS_TABLE_NAME,
   TableStorageRoundRepository,
 } from "./RoundRepository";
 import type { Round } from "../../lib";
@@ -169,5 +171,56 @@ describe("TableStorageRoundRepository — ETag optimistic concurrency", () => {
     ).rejects.toBeInstanceOf(PreconditionFailedError);
 
     expect((await repo.getRound(P7, 1))?.round.label).toBe("winner");
+  });
+});
+
+// What the composition root asks for. `TableStorageRoundRepository` takes
+// a `TableClient`, so wiring it from `src/index.ts` would mean the entry
+// point importing `@azure/data-tables` — and "storage/ is the only layer
+// that touches the SDK" would be true of every layer except the one that
+// assembles them. The factory takes a connection string instead, which is
+// the only thing the environment actually supplies.
+//
+// Deliberately not a round-trip against Azurite, unlike everything above:
+// the emulator serves plain http, so reaching it needs
+// `allowInsecureConnection`, and threading that through the factory would
+// add a production parameter whose only caller is a test. What is asserted
+// instead is that the connection string genuinely reaches the SDK, which
+// is the part a stub would get wrong.
+
+describe("createRoundRepository", () => {
+  it("builds a repository from a connection string alone", () => {
+    const repository = createRoundRepository(AZURITE_CONN);
+
+    for (const method of [
+      "getCurrentRound",
+      "createRound",
+      "getRound",
+      "updateRound",
+    ] as const) {
+      expect(
+        typeof repository[method],
+        `the repository has no ${method}`
+      ).toBe("function");
+    }
+  });
+
+  it("names the table it addresses", () => {
+    // The deployed table name is a contract with whoever provisioned the
+    // storage account — it cannot be renamed here without the rows being
+    // somewhere the API no longer looks.
+    expect(ROUNDS_TABLE_NAME).toBe("Rounds");
+  });
+
+  it("fails on a malformed connection string at construction, not at the first request", () => {
+    // A bad setting should take the host down at start, next to the
+    // config that caused it — not surface later as one 500 per request
+    // from inside the storage layer.
+    //
+    // The `typeof` guard is not ceremony: "calling it throws" is also
+    // true of a factory that does not exist, and this assertion would
+    // pass on an empty module.
+    expect(typeof createRoundRepository).toBe("function");
+    expect(() => createRoundRepository("not-a-connection-string")).toThrow();
   });
 });

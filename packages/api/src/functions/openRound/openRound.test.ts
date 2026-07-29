@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeOpenRoundHandler } from "./openRound";
+import { makeOpenRoundHandler, openRoundOptions } from "./openRound";
 import {
   RoundService,
   RoundServiceError,
@@ -228,5 +228,30 @@ describe("openRound handler — success and error mapping", () => {
     );
     const res = await handler()(makeReq({ body: validBody() }), makeContext());
     expect(res.status).toBe(422);
+  });
+});
+
+// The registration half of the contract. A handler factory nothing calls
+// `app.http()` with is dead code that every behaviour test above still
+// passes on, which is exactly the state this package has been in — so
+// where each one is mounted is pinned beside the behaviour it serves,
+// rather than only in the composition root.
+//
+// Anonymous of necessity, and the same reasoning as the bot's
+// `/api/messages`: the only caller is a browser-side panel, so a Function
+// key would have to ship inside the extension bundle, which makes it not
+// a secret. It is not an unauthenticated endpoint — every handler resolves
+// the caller's ADO bearer token through the IdentityResolver seam and
+// answers 401 when it yields nothing (see the tests above) — but the two
+// facts have to be read together, which is why this is asserted rather
+// than left to a deployment setting nobody diffs.
+
+describe("openRound registration", () => {
+  it("mounts POST at the PR's round collection", () => {
+    expect(openRoundOptions).toMatchObject({
+      methods: ["POST"],
+      authLevel: "anonymous",
+      route: "prs/{prKey}/rounds",
+    });
   });
 });

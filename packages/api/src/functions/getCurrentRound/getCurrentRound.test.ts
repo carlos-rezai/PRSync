@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { HttpRequest } from "@azure/functions";
-import { makeGetCurrentRoundHandler } from "./getCurrentRound";
+import {
+  getCurrentRoundOptions,
+  makeGetCurrentRoundHandler,
+} from "./getCurrentRound";
 import type { IdentityResolver, RoundService } from "../../services";
 import { PR_KEY } from "../../test/fixtures/fixtures";
 import {
@@ -85,5 +88,23 @@ describe("getCurrentRound handler — read contract (authenticated)", () => {
 
     expect(res.status).toBe(204);
     expect(res.jsonBody).toBeUndefined();
+  });
+});
+
+// Where this handler is mounted, pinned beside the behaviour it serves —
+// see the note in openRound.test.ts for why the auth level is anonymous
+// and why that is not the same as unauthenticated.
+
+describe("getCurrentRound registration", () => {
+  it("mounts GET at the PR's current round", () => {
+    // `current` and `{n}` are siblings under `rounds/`. They never
+    // collide, because this is the only GET of the five — but the fact
+    // that they are distinguished by METHOD rather than by path shape is
+    // the kind of thing a later route change quietly breaks.
+    expect(getCurrentRoundOptions).toMatchObject({
+      methods: ["GET"],
+      authLevel: "anonymous",
+      route: "prs/{prKey}/rounds/current",
+    });
   });
 });

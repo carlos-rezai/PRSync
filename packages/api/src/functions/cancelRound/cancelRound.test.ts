@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { makeCancelRoundHandler } from "./cancelRound";
+import { makeCancelRoundHandler, cancelRoundOptions } from "./cancelRound";
 import {
   RoundService,
   RoundServiceError,
@@ -129,5 +129,19 @@ describe("cancelRound handler — success and error mapping", () => {
     );
     const res = await handler()(makeReq({}), makeContext());
     expect(res.status).toBe(503);
+  });
+});
+
+// Where this handler is mounted, pinned beside the behaviour it serves —
+// see the note in openRound.test.ts for why the auth level is anonymous
+// and why that is not the same as unauthenticated.
+
+describe("cancelRound registration", () => {
+  it("mounts POST at the round's cancel action", () => {
+    expect(cancelRoundOptions).toMatchObject({
+      methods: ["POST"],
+      authLevel: "anonymous",
+      route: "prs/{prKey}/rounds/{n}/cancel",
+    });
   });
 });
