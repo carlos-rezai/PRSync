@@ -14,6 +14,12 @@ packages/bot/bin/
 packages/bot/obj/
 local.settings.json
 
+# Azurite emulator state (see docs/deployment.md, "Local development")
+.azurite/
+__azurite_db*__.json
+__blobstorage__/
+__queuestorage__/
+
 # Env
 .env
 .env.local
