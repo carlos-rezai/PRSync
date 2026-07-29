@@ -114,6 +114,37 @@ describe("the botbuilder seam", () => {
   });
 });
 
+describe("the frozen handoff cards", () => {
+  it("are read by tests, and by nothing that ships", () => {
+    // `docs/handoff/adaptive-cards/` is the authoritative design of both
+    // cards, and it lives outside every package. Reading it at runtime
+    // means either a build-time copy that silently drifts from the
+    // handoff or a cross-package path that breaks bundling — which is
+    // exactly why the builders are typed code checked AGAINST the
+    // template rather than driven by it.
+    //
+    // Asserted as one test for the same reason as the two above: "the
+    // handoff never ships" passes just as happily when nothing reads it
+    // at all, and the day the equality tests are deleted is the day card
+    // drift stops being caught.
+    const readers = readSources(true).filter((file) =>
+      file.text.includes("adaptive-cards")
+    );
+
+    expect(
+      readers.map((file) => file.path),
+      "nothing reads the handoff cards — the frozen JSON is no longer authoritative over anything"
+    ).not.toEqual([]);
+
+    for (const file of readers) {
+      expect(
+        /\.test\.tsx?$/.test(file.path),
+        `${file.path} reaches docs/handoff outside a test, so the handoff would have to ship with the bot`
+      ).toBe(true);
+    }
+  });
+});
+
 describe("table access", () => {
   it("reaches @azure/data-tables only from storage/, and only by point read", () => {
     const importers = importersOf("@azure/data-tables");

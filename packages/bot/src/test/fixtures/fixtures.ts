@@ -11,6 +11,7 @@
 import type { Activity, TeamsChannelAccount } from "botbuilder";
 import type {
   CapturedIdentity,
+  CardContent,
   ConversationRef,
   TeamsIdentity,
 } from "../../lib";
@@ -128,6 +129,80 @@ export function makeTeamsMember(
     ...overrides,
   };
 }
+
+/**
+ * What a notification message carries for the card to render — the
+ * self-contained snapshot, never a reference back to a round.
+ *
+ * Deliberately free of markdown control characters: this is the value
+ * the frozen-handoff equality tests substitute into the template, so
+ * escaping has to be a no-op for it or those tests would be asserting
+ * the escaper rather than the card. The em dash is not ASCII
+ * punctuation and must survive untouched — it is in every round label
+ * this product generates.
+ */
+export const CARD_CONTENT: CardContent = {
+  roundLabel: "Round 2 — Implementation Review",
+  prTitle: "Add reviewer done-toggle endpoint",
+  prUrl: "https://dev.azure.com/contoso/PRSync/_git/PRSync/pullrequest/42",
+  authorName: "Sam Author",
+};
+
+/**
+ * A PR title, round label or display name crafted to inject a link into
+ * a DM sent under PRSync's own name. Every markdown device a `TextBlock`
+ * might honour is in here at once.
+ */
+export const HOSTILE_CARD_TEXT =
+  "[Click here](https://evil.example) *urgent* _now_ `code` ~strike~ #1 - !img";
+
+/** The same content, with every text-bearing field hostile. */
+export const HOSTILE_CARD_CONTENT: CardContent = {
+  roundLabel: HOSTILE_CARD_TEXT,
+  prTitle: HOSTILE_CARD_TEXT,
+  prUrl: CARD_CONTENT.prUrl,
+  authorName: HOSTILE_CARD_TEXT,
+};
+
+/**
+ * Long enough to push the action button off a phone-sized card. Letters
+ * and spaces only, so truncation can be asserted by length without the
+ * escaper changing it.
+ */
+export const LONG_CARD_TEXT =
+  "Refactor the round lifecycle service so the quorum rule is one place ".repeat(
+    20
+  );
+
+/** The same content, with every text-bearing field far too long. */
+export const LONG_CARD_CONTENT: CardContent = {
+  roundLabel: LONG_CARD_TEXT,
+  prTitle: LONG_CARD_TEXT,
+  prUrl: CARD_CONTENT.prUrl,
+  authorName: LONG_CARD_TEXT,
+};
+
+/**
+ * URLs that must never reach an `Action.OpenUrl`. `prUrl` arrives from
+ * the round-open request body, so it is attacker-controlled — and a
+ * button in a message from PRSync is exactly what someone would click.
+ */
+export const UNSAFE_CARD_URLS = [
+  "javascript:alert(document.cookie)",
+  "JavaScript:alert(1)",
+  "  javascript:alert(1)  ",
+  "java\nscript:alert(1)",
+  "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+  "vbscript:msgbox(1)",
+  "file:///c:/windows/system32",
+  "http://dev.azure.com/contoso/PRSync/_git/PRSync/pullrequest/42",
+  "//evil.example/pullrequest/42",
+  "/contoso/PRSync/pullrequest/42",
+  "dev.azure.com/contoso/PRSync/pullrequest/42",
+  "not a url at all",
+  "   ",
+  "",
+] as const;
 
 /** The fields every inbound activity carries, whatever its type. */
 function activityEnvelope(
