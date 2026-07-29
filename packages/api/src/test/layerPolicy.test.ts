@@ -117,20 +117,36 @@ describe("table access", () => {
   });
 });
 
-describe("the notification port", () => {
-  it("has its implementation chosen in the composition root, and nowhere else", () => {
-    const sources = readSources(false);
+/**
+ * Every class declaring itself a `NotificationPort`, found by what it says
+ * it is rather than by a name this test would have to be kept in step with
+ * as implementations come and go.
+ */
+function notificationPortImplementations(): {
+  name: string;
+  definedIn: string;
+}[] {
+  return readSources(false).flatMap((file) =>
+    [
+      ...file.text.matchAll(/class\s+(\w+)\s+implements\s+NotificationPort\b/g),
+    ].map((match) => ({ name: match[1] as string, definedIn: file.path }))
+  );
+}
 
-    // Every class declaring itself an implementation, found by what it
-    // says it is rather than by a name this test would have to be kept in
-    // step with as implementations come and go.
-    const implementations = sources.flatMap((file) =>
-      [
-        ...file.text.matchAll(
-          /class\s+(\w+)\s+implements\s+NotificationPort\b/g
-        ),
-      ].map((match) => ({ name: match[1] as string, definedIn: file.path }))
-    );
+describe("the notification port", () => {
+  // Restated for the slice that installs the real producer. The property
+  // this has always been protecting is "no module has reached past the
+  // interface for a concrete implementation" — and the earlier wording,
+  // `namedBy === ["index.ts"]` for EVERY implementation, only expressed
+  // that while exactly one implementation existed. With the queue
+  // producer live, `NoopNotificationPort` is named by nobody, which the
+  // old assertion reads as a regression and which is in fact the point:
+  // the stub stays in the codebase as the no-op/test implementation and
+  // the root stops choosing it. So the rule splits in two.
+
+  it("lets no module outside the composition root name a concrete implementation", () => {
+    const sources = readSources(false);
+    const implementations = notificationPortImplementations();
 
     expect(
       implementations.map(({ name }) => name),
@@ -142,18 +158,80 @@ describe("the notification port", () => {
         .filter(
           (file) =>
             file.path !== definedIn &&
+            // A layer barrel re-exports its modules BY PATH, so a folder
+            // named after the class it holds puts the class name in the
+            // barrel's text without anything having chosen it. Publishing
+            // a module is not installing it — only `index.ts`, the one
+            // file with no layer above it, does that.
+            !/\/index\.ts$/.test(file.path) &&
             new RegExp(`\\b${name}\\b`).test(file.text)
         )
         .map((file) => file.path)
         .sort();
 
-      // Not "at most one place" — exactly `index.ts`. A port named
-      // nowhere at all is a port nothing installs, which is the state
-      // this package is in before the composition root exists.
       expect(
-        namedBy,
-        `${name} should be named only by the composition root — swapping the live port is meant to be a one-line change in one file`
-      ).toEqual(["index.ts"]);
+        namedBy.filter((path) => path !== "index.ts"),
+        `${name} is named by a module that is not the composition root — swapping the live port is meant to be a one-line change in one file`
+      ).toEqual([]);
     }
+  });
+
+  it("has exactly one implementation installed, chosen in the composition root", () => {
+    const implementations = notificationPortImplementations();
+    const root = readSources(false).find((file) => file.path === "index.ts");
+    expect(root, "there is no composition root").toBeDefined();
+
+    const installed = implementations
+      .filter(({ name }) => new RegExp(`\\b${name}\\b`).test(root?.text ?? ""))
+      .map(({ name }) => name);
+
+    // One, not "at least one": a root that names two has a dead branch,
+    // and a root that names none installs nothing while the app starts
+    // and serves happily.
+    expect(
+      installed,
+      "the composition root names no NotificationPort implementation, so the seam is wired to nothing"
+    ).toHaveLength(1);
+  });
+
+  it("keeps the no-op stub in the codebase, unwired", () => {
+    // Not dead code — it is the implementation a test or a local run
+    // installs when the queue is not the point. Deleting it because the
+    // root stopped naming it would take the option away with it.
+    const names = notificationPortImplementations().map(({ name }) => name);
+
+    expect(names).toContain("NoopNotificationPort");
+    expect(names.length, "the no-op stub is the only implementation, so nothing real is installed").toBeGreaterThan(1);
+  });
+});
+
+describe("queue access", () => {
+  it("reaches @azure/storage-queue only from storage/, which is where the composition root asks for a queue", () => {
+    // The same rule `@azure/data-tables` lives under, for the same
+    // reason. `services/` owns the fan-out RULES — who gets a message and
+    // how many — and it can only be tested against a fake queue if no
+    // Azure SDK is reachable from it. The producer is the obvious place
+    // to construct a `QueueClient` "just to send with", and doing so
+    // would leave the port untestable without a storage account.
+    const importers = importersOf("@azure/storage-queue");
+
+    expect(
+      importers.length,
+      "nothing imports @azure/storage-queue — storage/ is meant to be the one layer that does"
+    ).toBeGreaterThan(0);
+
+    for (const path of importers) {
+      expect(
+        path.startsWith("storage/"),
+        `${path} touches @azure/storage-queue outside storage/, so the notification producer can no longer be driven without a real queue`
+      ).toBe(true);
+    }
+
+    const root = readSources(false).find((file) => file.path === "index.ts");
+    expect(root, "there is no composition root").toBeDefined();
+    expect(
+      root?.text,
+      "the composition root does not build its queue through storage/'s factory, so the only way it has one is a QueueClient of its own"
+    ).toContain("createNotificationQueue");
   });
 });

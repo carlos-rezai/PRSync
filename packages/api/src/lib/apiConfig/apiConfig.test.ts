@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_QUORUM, readApiConfig } from "./apiConfig";
+import {
+  DEFAULT_NOTIFICATION_QUEUE_NAME,
+  DEFAULT_QUORUM,
+  readApiConfig,
+} from "./apiConfig";
 
 // Everything the API needs from its environment, read in one place at
 // host start rather than at the first request that happens to need it.
@@ -24,8 +28,12 @@ import { DEFAULT_QUORUM, readApiConfig } from "./apiConfig";
 const CONNECTION_STRING =
   "DefaultEndpointsProtocol=https;AccountName=prsync;AccountKey=a2V5;";
 
+const QUEUES_CONNECTION_STRING =
+  "DefaultEndpointsProtocol=https;AccountName=prsyncq;AccountKey=cTM=;";
+
 const COMPLETE_ENV = {
   AZURE_TABLES_CONNECTION_STRING: CONNECTION_STRING,
+  AZURE_QUEUES_CONNECTION_STRING: QUEUES_CONNECTION_STRING,
 } as const;
 
 describe("readApiConfig", () => {
@@ -68,6 +76,55 @@ describe("readApiConfig", () => {
         readApiConfig({ AZURE_TABLES_CONNECTION_STRING: value }),
         `${JSON.stringify(value)} was accepted as a connection string`
       ).toThrowError("AZURE_TABLES_CONNECTION_STRING");
+    }
+  });
+
+  it("reads the Queue Storage connection string the notification producer needs", () => {
+    // A separate setting from the tables one, and deliberately so: the two
+    // Function Apps may split storage accounts, and the producer has to be
+    // pointable at whichever account the bot's trigger is listening on.
+    expect(readApiConfig({ ...COMPLETE_ENV })).toMatchObject({
+      queuesConnectionString: QUEUES_CONNECTION_STRING,
+    });
+  });
+
+  it("defaults the notification queue name when nothing is configured", () => {
+    expect(DEFAULT_NOTIFICATION_QUEUE_NAME).toBe("prsync-notifications");
+    for (const value of [undefined, "", "   "]) {
+      expect(
+        readApiConfig({
+          ...COMPLETE_ENV,
+          PRSYNC_NOTIFICATION_QUEUE_NAME: value,
+        }),
+        `${JSON.stringify(value)} did not fall back to the default`
+      ).toMatchObject({ notificationQueueName: "prsync-notifications" });
+    }
+  });
+
+  it("reads a configured notification queue name", () => {
+    expect(
+      readApiConfig({
+        ...COMPLETE_ENV,
+        PRSYNC_NOTIFICATION_QUEUE_NAME: "prsync-notifications-staging",
+      })
+    ).toMatchObject({ notificationQueueName: "prsync-notifications-staging" });
+  });
+
+  it("refuses to start when the queue connection string is missing or blank, naming it", () => {
+    // Fails at start for the same reason the tables one does, and for a
+    // sharper one: an API that starts perfectly healthy and quietly
+    // notifies nobody is the exact failure this product exists to
+    // prevent. There is no lazy failure to discover it — no request 500s,
+    // no round misbehaves, the DMs simply never arrive.
+    for (const value of [undefined, "", "   "]) {
+      expect(
+        () =>
+          readApiConfig({
+            AZURE_TABLES_CONNECTION_STRING: CONNECTION_STRING,
+            AZURE_QUEUES_CONNECTION_STRING: value,
+          }),
+        `${JSON.stringify(value)} was accepted as a queue connection string`
+      ).toThrowError("AZURE_QUEUES_CONNECTION_STRING");
     }
   });
 

@@ -130,6 +130,60 @@ describe("openRound handler — boundary validation (rejects before storage)", (
   });
 });
 
+describe("openRound handler — prUrl must be an https: URL", () => {
+  // The stored `prUrl` is what the bot puts behind the card's
+  // `Action.OpenUrl` button, so it is attacker-controlled text that ends
+  // up one click away from a reviewer. `safeCardUrl` in the bot already
+  // omits the action rather than emitting a hostile one; this is the
+  // other end of the same defence — refuse it at the boundary so a
+  // hostile URL is never stored in the first place, and the two halves
+  // do not depend on each other being correct.
+  // See docs/design-logs/03-teams-notifications.md Q13.
+
+  it("rejects a prUrl that is not an https: URL with 400 and never calls the service", async () => {
+    for (const prUrl of [
+      "http://dev.azure.com/org/proj/_git/repo/pullrequest/42",
+      "javascript:alert(document.domain)",
+      "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+      "file:///etc/passwd",
+      "//dev.azure.com/org/proj",
+      "not a url at all",
+      "",
+    ]) {
+      service.openRound.mockClear();
+      const res = await handler()(
+        makeReq({ body: { ...validBody(), prUrl } }),
+        makeContext()
+      );
+
+      expect(res.status, `"${prUrl}" was accepted as a prUrl`).toBe(400);
+      // The existing 400 shape, not a new one: a caller cannot tell which
+      // field it got wrong, and nothing about the rejection is new to it.
+      expect(res.jsonBody).toEqual({ error: "Invalid request body." });
+      expect(
+        service.openRound,
+        `"${prUrl}" reached the service`
+      ).not.toHaveBeenCalled();
+    }
+  });
+
+  it("accepts an https: prUrl", async () => {
+    service.openRound.mockResolvedValue({ roundNumber: 1 });
+
+    const res = await handler()(
+      makeReq({
+        body: {
+          ...validBody(),
+          prUrl: "https://dev.azure.com/org/proj/_git/repo/pullrequest/42",
+        },
+      }),
+      makeContext()
+    );
+
+    expect(res.status).toBe(201);
+  });
+});
+
 describe("openRound handler — authentication (401)", () => {
   it("rejects a request whose identity cannot be resolved with 401 and never calls the service", async () => {
     identity.resolve.mockResolvedValue(null);
