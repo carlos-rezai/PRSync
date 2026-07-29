@@ -13,6 +13,7 @@ import type {
   CapturedIdentity,
   CardContent,
   ConversationRef,
+  NotificationLogEntry,
   NotificationMessage,
   TeamsIdentity,
 } from "../../lib";
@@ -256,6 +257,63 @@ export function makeNotificationMessage(
       displayName: PERSON.displayName,
     },
     card: CARD_CONTENT,
+    ...overrides,
+  };
+}
+
+/**
+ * A SECOND PR. Round numbers restart per PR — round 2 exists on every PR
+ * in the org at once — which is the whole reason the delivery record
+ * partitions by PR key rather than keying on the round number alone.
+ */
+export const OTHER_PR_KEY =
+  "6f5e4d3c-2b1a-0908-1716-2524232221f0:aabbccdd-eeff-0011-2233-445566778899:43";
+
+/**
+ * The ADO identity of a SECOND person on the same round. One reviewer's
+ * delivery record must not stand in for another's, or a fan-out of five
+ * would send one DM.
+ */
+export const OTHER_RECIPIENT_ADO_ID = "4d3c2b1a-0908-1716-2524-232221201918";
+
+/**
+ * The dedupe key of `makeNotificationMessage()` —
+ * `{roundNumber}|{event}|{recipientAdoId}`, the row key of its delivery
+ * record inside the `prKey` partition.
+ *
+ * Spelled out rather than computed on purpose: a fixture that called the
+ * key builder would agree with it by construction, and every test that
+ * used it would pass against a builder that produced anything at all.
+ */
+export const DEDUPE_KEY = `2|roundOpened|${RECIPIENT_ADO_ID}`;
+
+/**
+ * Addresses that resolve to nobody. A message carrying one of these
+ * cannot be delivered by any retry — there is no address to resolve, so
+ * the recipient is unreachable rather than the delivery failed, and
+ * handing it back to the queue would only spend the retry budget
+ * re-learning that.
+ */
+export const UNRESOLVABLE_EMAILS = ["", "   ", "\t\n"] as const;
+
+/**
+ * A delivery record as the notification log stores and returns it: one
+ * recipient's outcome for one event on one round.
+ *
+ * It carries who was addressed as well as the outcome, so "who was
+ * notified for round 4" is answerable from the rows themselves — an ADO
+ * identity GUID alone answers nothing anybody can read.
+ */
+export function makeNotificationLogEntry(
+  overrides: Partial<NotificationLogEntry> = {}
+): NotificationLogEntry {
+  return {
+    prKey: PR_KEY,
+    dedupeKey: DEDUPE_KEY,
+    status: "sent",
+    recipientEmail: PERSON.email,
+    recipientDisplayName: PERSON.displayName,
+    at: "2026-07-28T09:00:00.000Z",
     ...overrides,
   };
 }

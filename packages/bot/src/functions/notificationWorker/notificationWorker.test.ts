@@ -42,6 +42,24 @@ describe("notificationWorker", () => {
     expect(dispatcher.dispatch).toHaveBeenCalledWith(message);
   });
 
+  it("lets a transient failure escape, so the host retries and eventually poisons", async () => {
+    // Returning normally completes the queue message; throwing hands it
+    // back. That split IS this layer's whole error handling, and the
+    // dispatcher is what decides which side a failure falls on — so a
+    // rejection has to travel straight through rather than being caught
+    // here, where catching it would silently drop a "safe to proceed".
+    const dispatcher = makeNotificationDispatcher();
+    const failure = new Error("Bot Framework: 503 Service Unavailable");
+    dispatcher.dispatch.mockRejectedValueOnce(failure);
+
+    await expect(
+      makeNotificationWorkerHandler(dispatcher)(
+        makeNotificationMessage(),
+        makeContext()
+      )
+    ).rejects.toThrow(failure);
+  });
+
   it("triggers on prsync-notifications when nothing is configured", () => {
     // `connection` names the app setting holding the connection string —
     // it is not the string itself. Both are settings so the two Function
