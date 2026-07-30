@@ -11,9 +11,8 @@
 // cheaper half of that trade; and unlike the queue envelope this one is
 // test-only, so it cannot reach a deploy at all.
 //
-// It lives here rather than in either test because it is a cross-layer
-// test helper, which is exactly what `src/test/fixtures/` holds; the same
-// reason `fakes.ts` and `fixtures.ts` sit outside the layer conventions.
+// It sits in `repo/` because reading a directory is I/O, and `repo/` is
+// the only layer in this workspace allowed to do any.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";

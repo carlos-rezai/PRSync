@@ -2,8 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readDocument } from "../repo";
-import { readSourceFiles } from "./fixtures/sourceFiles";
+import { readDocument, readSourceFiles } from "../repo";
 import { SETTING_PATTERN, section } from "./fixtures/markdown";
 
 // This slice ships documentation, so there is no behaviour to drive. What

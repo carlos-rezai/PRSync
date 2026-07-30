@@ -10,3 +10,4 @@
 
 export * from "./readDocument/readDocument";
 export * from "./repoAt/repoAt";
+export * from "./sourceFiles/sourceFiles";
