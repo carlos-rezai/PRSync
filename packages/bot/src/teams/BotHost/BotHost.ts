@@ -3,118 +3,23 @@ import {
   CloudAdapter,
   ConfigurationBotFrameworkAuthentication,
   ConfigurationServiceClientCredentialFactory,
-  TeamsInfo,
-  TurnContext,
-  type ChannelAccount,
   type Request as BotFrameworkRequest,
   type Response as BotFrameworkResponse,
 } from "botbuilder";
 import type { HttpRequest, HttpResponseInit } from "@azure/functions";
-import type { CapturedIdentity } from "../../lib";
-import type { IdentityDirectory } from "../../services";
 import type { BotConfig } from "../BotConfig/BotConfig";
 
 // `teams/` is the exact analogue of the extension's `sdk/` layer: the one
 // place that imports the vendor SDK. Everything below it — the
 // directory, the repository, the helpers — is testable with no Bot
 // Framework in the test at all, and stays that way only as long as this
-// stays the sole importer.
+// layer stays the sole importer.
 //
-// Two things live here: the bot's activity routing, and the adapter
-// itself behind a `MessagingEndpoint` narrow enough that the HTTP
-// function knows nothing about Bot Framework. The settings the adapter
-// authenticates with are its sibling `BotConfig`.
-
-/**
- * The reply to anything a teammate types. v1 cards are link-out only and
- * arrive unprompted, so this is the ONLY way someone can confirm that
- * adding the app did anything — which is why the bot is deliberately not
- * registered notification-only.
- */
-const HELP_REPLY =
-  "PRSync is connected. You'll get a message here when a review round " +
-  "opens on a pull request you're reviewing, and when a round on your own " +
-  "pull request closes. There's nothing else to set up — leave PRSync " +
-  "installed and it will find you.";
-
-/** Whether `members` names the bot itself rather than some other person. */
-function includesBot(
-  members: ChannelAccount[] | undefined,
-  botId: string
-): boolean {
-  return (members ?? []).some((member) => member.id === botId);
-}
-
-/**
- * Everything about the person behind this turn. Teams puts no email on
- * an activity, so the bot has to ask the connector for the member's
- * profile — the one call in this slice that leaves the process.
- */
-async function readIdentity(
-  context: TurnContext
-): Promise<CapturedIdentity | null> {
-  const activity = context.activity;
-  const member = await TeamsInfo.getMember(context, activity.from.id);
-
-  // `email` is what the Teams connector answers with; `userPrincipalName`
-  // is the same address under the name AAD gives it, and the one ADO's
-  // `uniqueName` matches. Either resolves to the same normalized key.
-  const email = member.email ?? member.userPrincipalName ?? "";
-  if (email.trim() === "") return null;
-
-  return {
-    email,
-    aadObjectId: member.aadObjectId ?? activity.from.aadObjectId ?? "",
-    teamsUserId: member.id,
-    displayName: member.name,
-    conversationReference: TurnContext.getConversationReference(activity),
-  };
-}
-
-/**
- * The bot: install captures, uninstall forgets, and any message both
- * refreshes the reference and answers.
- *
- * An install is a `conversationUpdate` carrying THE BOT in
- * `membersAdded` — not the person — and an uninstall is the same event
- * with the bot in `membersRemoved`. `conversationUpdate` is a shared
- * event shape, so treating any `membersAdded` as an install would
- * capture an identity for somebody who installed nothing.
- */
-export function createTeamsBot(directory: IdentityDirectory): ActivityHandler {
-  const bot = new ActivityHandler();
-
-  bot.onConversationUpdate(async (context, next) => {
-    const activity = context.activity;
-    const botId = activity.recipient.id;
-
-    if (includesBot(activity.membersAdded, botId)) {
-      const identity = await readIdentity(context);
-      if (identity !== null) await directory.capture(identity);
-    } else if (includesBot(activity.membersRemoved, botId)) {
-      const identity = await readIdentity(context);
-      // A reference kept past the uninstall is dead: it burns the full
-      // retry budget into the poison queue on every future round, and it
-      // is PII PRSync no longer has any reason to hold.
-      if (identity !== null) await directory.forget(identity.email);
-    }
-
-    await next();
-  });
-
-  bot.onMessage(async (context, next) => {
-    // References go stale, and Teams can hand the bot a new one on any
-    // later activity. Re-persisting here is cheap insurance against
-    // notifications that stop arriving with nothing reporting a fault.
-    const identity = await readIdentity(context);
-    if (identity !== null) await directory.capture(identity);
-
-    await context.sendActivity(HELP_REPLY);
-    await next();
-  });
-
-  return bot;
-}
+// Two things live here: the adapter itself, and the `MessagingEndpoint`
+// wrapping it narrowly enough that the HTTP function knows nothing about
+// Bot Framework. The settings it authenticates with are its sibling
+// `BotConfig`; the activity routing it runs a turn against is
+// `TeamsBot`.
 
 /**
  * The Bot Framework adapter, as the HTTP function sees it: hand it the

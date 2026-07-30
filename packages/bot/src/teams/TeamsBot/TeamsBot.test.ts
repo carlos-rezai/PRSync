@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { TeamsInfo, TestAdapter } from "botbuilder";
-import { createTeamsBot } from "./BotHost";
+import { createTeamsBot } from "./TeamsBot";
 import { createIdentityDirectory } from "../../services";
 import { makeIdentityRepository } from "../../test/fixtures/fakes";
 import {

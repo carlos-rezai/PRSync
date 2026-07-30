@@ -8,4 +8,5 @@
 
 export * from "./BotConfig/BotConfig";
 export * from "./BotHost/BotHost";
+export * from "./TeamsBot/TeamsBot";
 export * from "./TeamsSender/TeamsSender";

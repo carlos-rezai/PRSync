@@ -48,7 +48,7 @@ interface SourceFile {
 
 /**
  * @param includeTests Co-located tests reach for things their subject may
- * not — `BotHost.activities.test.ts` drives Bot Framework's own
+ * not — `TeamsBot.test.ts` drives Bot Framework's own
  * `TestAdapter`, which is the correct place for it. Rules about what
  * ships read production files only; rules about how storage is addressed
  * read everything, because a test that scanned a table would be asserting
