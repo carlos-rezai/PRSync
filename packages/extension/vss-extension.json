@@ -4,7 +4,7 @@
   "name": "PRSync",
   "version": "0.1.0",
   "publisher": "REPLACE_WITH_PUBLISHER_ID",
-  "description": "Coordinated review rounds for spec-driven PRs, with Teams notifications.",
+  "description": "Coordinated review rounds for spec-driven PRs, with Teams notifications. A panel on the PR page tracks the round; the author is messaged when it closes on quorum. See docs/user-guide.md in the repo.",
   "categories": ["Azure Repos"],
   "targets": [
     {

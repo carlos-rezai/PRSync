@@ -15,7 +15,7 @@
   },
   "description": {
     "short": "Know when a review round opens or closes, as a direct message.",
-    "full": "PRSync coordinates review rounds on spec-driven pull requests. When an author marks a pull request ready for review, PRSync sends each reviewer on that round a direct message; when the last reviewer marks themselves done and the round closes, it tells the author. Notifications are personal messages only - PRSync has no channel or group-chat surface."
+    "full": "PRSync coordinates review rounds on spec-driven pull requests. When an author marks a pull request ready for review, PRSync sends each reviewer on that round a direct message; when the round reaches its quorum of Done ticks and closes, it tells the author. A round can close while people on its reviewer list have not looked yet. Notifications are personal messages only - PRSync has no channel or group-chat surface."
   },
   "icons": {
     "color": "icon-teams-color-192.png",
