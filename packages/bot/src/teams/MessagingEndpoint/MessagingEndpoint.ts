@@ -1,8 +1,7 @@
-import {
-  ActivityHandler,
-  CloudAdapter,
-  type Request as BotFrameworkRequest,
-  type Response as BotFrameworkResponse,
+import type {
+  TurnContext,
+  Request as BotFrameworkRequest,
+  Response as BotFrameworkResponse,
 } from "botbuilder";
 import type { HttpRequest, HttpResponseInit } from "@azure/functions";
 
@@ -12,6 +11,29 @@ import type { HttpRequest, HttpResponseInit } from "@azure/functions";
 // so this module is the whole of the conversion — and the reason
 // `teamsMessages` can be a three-line handler that names no Bot Framework
 // type at all.
+
+/**
+ * The adapter's inbound half, as this module needs it. Structural on
+ * purpose: `CloudAdapter` satisfies it without knowing it exists, which
+ * is what lets the translation below be driven with no Bot Framework
+ * standing up — the same trick `QueueProducer` plays on the Azure queue
+ * client in `packages/api`.
+ */
+export interface ChannelRequestProcessor {
+  process(
+    request: BotFrameworkRequest,
+    response: BotFrameworkResponse,
+    logic: (context: TurnContext) => Promise<void>
+  ): Promise<void>;
+}
+
+/**
+ * The bot's turn routing, as this module needs it. One method, for the
+ * same reason as above: `ActivityHandler` satisfies it structurally.
+ */
+export interface ActivityRunner {
+  run(context: TurnContext): Promise<void>;
+}
 
 /**
  * The Bot Framework adapter, as the HTTP function sees it: hand it the
@@ -82,8 +104,8 @@ class CollectedResponse implements BotFrameworkResponse {
 
 /** The inbound half of the adapter, wired to the bot that routes activities. */
 export function createMessagingEndpoint(
-  adapter: CloudAdapter,
-  bot: ActivityHandler
+  adapter: ChannelRequestProcessor,
+  bot: ActivityRunner
 ): MessagingEndpoint {
   return {
     async process(request: HttpRequest): Promise<HttpResponseInit> {
