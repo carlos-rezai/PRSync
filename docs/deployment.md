@@ -618,3 +618,13 @@ can tell them apart from oversights.
   Azure rather than reaching out, so there is no way to exercise the
   inbound half from a laptop without exposing a port — see
   [Local development](#local-development).
+- **The source walker is duplicated.** `readSourceFiles` — twenty-five
+  lines that return every `.ts` file under a root, with its text — exists
+  in both `packages/bot/src/test/fixtures/` and
+  `packages/docs/src/repo/sourceFiles/`. The bot's policy test needs a
+  walker over the bot's own source, and the documentation tests need one
+  over every package; sharing a single copy means a
+  workspace-to-workspace dependency, which is the same packaging problem
+  already declined for `NotificationMessage` above and for `statusCodeOf`.
+  One copy per consumer, each with its own test. Unlike the queue
+  envelope, this one is test-only and cannot reach a deploy at all.
