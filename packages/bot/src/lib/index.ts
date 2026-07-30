@@ -9,4 +9,5 @@ export * from "./dedupeKey/dedupeKey";
 export * from "./escapeCardText/escapeCardText";
 export * from "./normalizeEmail/normalizeEmail";
 export * from "./safeCardUrl/safeCardUrl";
+export * from "./statusCodeOf/statusCodeOf";
 export * from "./types/types";
