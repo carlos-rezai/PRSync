@@ -284,7 +284,22 @@ describe("deployment documentation", () => {
   });
 });
 
-describe(".claude/CLAUDE.md", () => {
+// `.claude/CLAUDE.md` is a deliberate local override and is gitignored, so
+// a fresh clone does not have it. These three tests guard the AUTHOR's
+// working copy against drift between the project instructions and the
+// source — a real check, and the only place the bot's layer conventions are
+// recorded, since design logs are immutable snapshots.
+//
+// They are skipped rather than failed when the file is absent. Failing
+// would mean a clone cannot get the suite green; deleting them gives up
+// the check; making them pass everywhere means force-adding a gitignored
+// file, which is the author's call and not a test's. A clone was never
+// given the file to drift from, so there is nothing there to assert
+// against. In every working copy that HAS it, these run and still fail on
+// real drift.
+const projectInstructions = existsSync(claudeMdPath) ? describe : describe.skip;
+
+projectInstructions(".claude/CLAUDE.md", () => {
   it("documents each setting under the package that reads it", () => {
     // Presence anywhere in the file is not enough. A setting listed only
     // under the package that does NOT read it tells someone configuring
