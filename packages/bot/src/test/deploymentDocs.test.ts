@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readSourceFiles } from "./fixtures/sourceFiles";
+import { SETTING_PATTERN, readDoc, section } from "./fixtures/markdown";
 
 // This slice ships documentation, so there is no behaviour to drive. What
 // there IS, and what rots silently, is the agreement between a document
@@ -33,25 +34,11 @@ const packagesDir = resolve(repoRoot, "packages");
 const deploymentDocPath = resolve(repoRoot, "docs/deployment.md");
 const claudeMdPath = resolve(repoRoot, ".claude/CLAUDE.md");
 
-/**
- * The shapes every PRSync deployment setting takes. Names are discovered
- * from source rather than listed here on purpose: a hardcoded list is one
- * more thing to forget to update, and would make this file pass by
- * agreeing with itself.
- */
-const SETTING_PATTERN =
-  /\b(?:MICROSOFT_APP_[A-Z0-9_]+|AZURE_[A-Z0-9_]*CONNECTION_STRING|PRSYNC_[A-Z0-9_]+|VITE_[A-Z0-9_]+)\b/g;
-
 interface DiscoveredSetting {
   /** The workspace directory that reads it, e.g. `bot`. */
   package: string;
   /** The setting name, e.g. `MICROSOFT_APP_TENANT_ID`. */
   name: string;
-}
-
-function readDoc(path: string, label: string): string {
-  expect(existsSync(path), `${label} is missing`).toBe(true);
-  return readFileSync(path, "utf8");
 }
 
 /**
@@ -82,42 +69,6 @@ function discoverSettings(): DiscoveredSetting[] {
   return [...found.values()].sort((a, b) =>
     `${a.package}:${a.name}`.localeCompare(`${b.package}:${b.name}`)
   );
-}
-
-/**
- * The body of a section, up to the next same-or-higher heading.
- *
- * Fenced blocks are skipped when looking for that boundary: the
- * Environment Variables section is one long fence whose `# packages/api`
- * comments are shell, not markdown, and reading them as headings ends the
- * section before a single setting is seen.
- */
-function section(markdown: string, heading: RegExp): string | undefined {
-  const lines = markdown.split("\n");
-
-  const outsideFence: boolean[] = [];
-  let fenced = false;
-  for (const line of lines) {
-    const isFence = /^\s*```/.test(line);
-    outsideFence.push(!fenced && !isFence);
-    if (isFence) fenced = !fenced;
-  }
-
-  const start = lines.findIndex(
-    (line, i) => outsideFence[i] && heading.test(line)
-  );
-  if (start === -1) return undefined;
-
-  const depth = ((lines[start] ?? "").match(/^#+/) ?? ["##"])[0].length;
-  const end = lines.findIndex(
-    (line, i) =>
-      i > start &&
-      outsideFence[i] &&
-      /^#+\s/.test(line) &&
-      (line.match(/^#+/) as RegExpMatchArray)[0].length <= depth
-  );
-
-  return lines.slice(start + 1, end === -1 ? undefined : end).join("\n");
 }
 
 describe("deployment documentation", () => {
