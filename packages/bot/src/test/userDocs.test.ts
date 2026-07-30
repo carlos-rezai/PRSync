@@ -7,8 +7,12 @@ import {
   section,
   githubSlug,
   unresolvedLinks,
+  unanimityAliases,
+  surfaceText,
   repoAt,
   type Repo,
+  type Surface,
+  type UnanimityHit,
   type UnresolvedLink,
 } from "./fixtures/markdown";
 
@@ -53,6 +57,23 @@ import {
 //      broken in the source; it renders as a link and lands at the top of
 //      the page.
 //
+// And a sixth, which is the only one on this list that is not
+// hypothetical — it is the state the repo shipped in:
+//
+//   6. the DERIVED SURFACES drift, because nothing reads them. The
+//      README, the Marketplace description and the Teams manifest's
+//      `description.full` each summarise the user guide, and each is
+//      maintained by hand in a different file with a different reviewer.
+//      The manifest's is the sentence every person installing the Teams
+//      app reads, and it said the author hears back "when the last
+//      reviewer marks themselves done" — a close rule PRSync does not
+//      have, sitting in front of every teammate PRSync was built for.
+//
+// Which is why assertion 6 scans a JSON DESCRIPTION FIELD and not a
+// document: two of the three surfaces are strings inside build manifests,
+// and reading either file as raw text would both trip on the sibling
+// fields it must ignore and break on a reformat that changed nothing.
+//
 // Assertion strength, recorded honestly:
 //
 //   - Assertion 1 (stage headings complete and ascending) is
@@ -74,19 +95,30 @@ import {
 //   - Assertion 4 (glossed terms exist verbatim upstream) is STRONG. It
 //     is a mechanical fact about two files: rename a term in the
 //     ubiquitous language and this goes red.
-//   - Assertion 5 (no unanimity alias) is STRONG, and deliberately
-//     BLUNT. It matches words, not meaning, so it will occasionally ask
-//     for a sentence to be rephrased that was not actually wrong. That
-//     is the accepted cost of catching the one paraphrase that is.
+//   - Assertion 5 (no unanimity alias in either guide) is STRONG, and
+//     deliberately BLUNT. It matches words, not meaning, so it will
+//     occasionally ask for a sentence to be rephrased that was not
+//     actually wrong. That is the accepted cost of catching the one
+//     paraphrase that is.
+//   - Assertion 6 (no unanimity alias on a derived surface) is STRONG
+//     about the same words over three more surfaces, and it inherits
+//     assertion 5's bluntness exactly. What it adds is that two of the
+//     surfaces are read as JSON VALUES, so it is indifferent to how the
+//     manifests are formatted and blind to every field it was not
+//     pointed at. What it does NOT claim is that a surface still
+//     summarises the user guide FAITHFULLY — drop the summary and write
+//     three accurate sentences of your own and it passes, because "adds
+//     no claim the user guide does not make" is not a mechanical
+//     property. The one mechanical half of it — that the Marketplace
+//     description still carries the pointer at all — is asserted
+//     separately, and is STRUCTURAL for the same reason assertion 2 is:
+//     it proves the pointer exists and nothing about where it goes.
 //
 // None claims to check prose quality — nothing here can, which is why
 // these documents get a human read-through before they merge.
 //
-// One assertion of the plan (`docs/PRDs/04-user-docs-plan.md`) is still
-// outstanding: 6, which lands with the derived surfaces. Assertion 5's
-// scan is pointed at the user guide only; the plan scopes it to both
-// guides, and the setup guide joins it with the scanner change that
-// assertion 6 makes.
+// All six assertions of the plan (`docs/PRDs/04-user-docs-plan.md`) are
+// now present.
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -98,66 +130,71 @@ const languagePath = resolve(repoRoot, "docs/ubiquitous-language.md");
 const GLOSS_HEADING = /^#+\s+Five words PRSync uses precisely\s*$/i;
 
 /**
- * The words that describe a close rule PRSync does not have, from the
- * "Unanimity language is drift, not phrasing" entry in
- * `docs/ubiquitous-language.md`. Each is labelled by the alias it stands
- * for so a failure names the rule that was broken, not just the regex.
- *
- * `all reviewed` is matched alongside `all reviewers` on purpose: it is
- * the panel's own pill text, and quoting the pill is legitimate while
- * writing the same phrase as prose is the drift. The quoted form is what
- * `ALLOWED_QUOTATIONS` exempts, so the distinction is carried by the
- * quotation marks rather than by leaving the phrase unchecked.
+ * The two guides assertion 5 scans. The user guide is authoritative for
+ * what PRSync does and the setup guide describes the close rule in
+ * passing — a wrong sentence in either is the same wrong sentence.
  */
-const UNANIMITY_ALIASES: ReadonlyArray<readonly [string, RegExp]> = [
-  ["unanimous", /\bunanimous(ly)?\b|\bunanimity\b/i],
-  ["consensus", /\bconsensus\b/i],
-  ["everyone", /\beveryone\b/i],
-  ["all reviewers", /\ball\s+review(ers?|ed)\b/i],
-  ["signed off", /\bsign(s|ed)?\s+off\b|\bsign-?off\b/i],
-  ["approved", /\bapproved\b/i],
+const GUIDES: readonly Surface[] = [
+  { path: "docs/user-guide.md" },
+  { path: "docs/setup-guide.md" },
 ];
 
 /**
- * UI strings the guide may quote verbatim even though they trip an alias.
- * The quotation marks are part of the allowance: "All reviewed" is what
- * the status pill renders, and a reader matching words on screen to words
- * on the page needs it unchanged — but the same phrase written as prose
- * is the drift this file exists to catch.
+ * The Teams app's description, named on its own because it is the
+ * sentence a teammate reads at the moment they install PRSync, and
+ * because it is the one that shipped wrong.
  */
-const ALLOWED_QUOTATIONS = ['"All reviewed"'];
+const TEAMS_DESCRIPTION: Surface = {
+  path: "packages/bot/teams/manifest.json",
+  field: "description.full",
+};
 
-interface AliasHit {
-  alias: string;
-  line: number;
-  text: string;
-}
+/** The Marketplace listing's description. */
+const MARKETPLACE_DESCRIPTION: Surface = {
+  path: "packages/extension/vss-extension.json",
+  field: "description",
+};
 
 /**
- * Every line of `markdown` that describes closing in unanimity language,
- * with the allowed verbatim quotations removed first.
- *
- * Takes text rather than a path so the same scan can be pointed at a JSON
- * description field, which is where the contradiction has actually
- * shipped before.
+ * The three derived surfaces assertion 6 scans: every user-facing
+ * description that is not the user guide. Each may summarise it; none may
+ * add a claim of its own, and all three are edited in files whose
+ * reviewer is thinking about packaging rather than about the close rule.
  */
-function unanimityAliases(markdown: string): AliasHit[] {
-  const hits: AliasHit[] = [];
+const DERIVED_SURFACES: readonly Surface[] = [
+  { path: "README.md" },
+  TEAMS_DESCRIPTION,
+  MARKETPLACE_DESCRIPTION,
+];
 
-  markdown.split("\n").forEach((raw, index) => {
-    const line = ALLOWED_QUOTATIONS.reduce(
-      (text, quotation) => text.split(quotation).join(" "),
-      raw
-    );
+/**
+ * What assertions 5 and 6 must never read, from the exclusion the plan
+ * calls load-bearing.
+ *
+ * Every one of these names the superseded rule ON PURPOSE — design logs
+ * are immutable snapshots of what was believed at the time, and the
+ * ubiquitous language's aliases-to-avoid columns and its "Unanimity
+ * language is drift" entry exist precisely to write the wrong words down
+ * so they are recognisable. A scanner pointed at them fails on day one,
+ * for the right words in the right places, and the only available fix
+ * would be to delete the record.
+ *
+ * Note that assertion 4 reads `docs/ubiquitous-language.md` and must:
+ * this exclusion is scoped to the alias scan, not to the file.
+ */
+const NEVER_SCANNED: readonly string[] = [
+  "docs/design-logs/",
+  "docs/PRDs/",
+  "docs/refactor-plans/",
+  "docs/dev-journal.md",
+  "docs/ubiquitous-language.md",
+];
 
-    for (const [alias, pattern] of UNANIMITY_ALIASES) {
-      if (pattern.test(line)) {
-        hits.push({ alias, line: index + 1, text: raw.trim() });
-      }
-    }
-  });
-
-  return hits;
+/** Alias hits as one line each, so a failure reads like a linter. */
+function aliasReport(hits: readonly UnanimityHit[]): string[] {
+  return hits.map(
+    ({ surface, line, alias, text }) => `${surface}:${line} ${alias} — ${text}`
+  );
 }
 
 /**
@@ -336,31 +373,383 @@ describe("the user guide's gloss section", () => {
   });
 });
 
-describe("the user guide's close rule", () => {
+/**
+ * A repository that exists for the length of one assertion: a map from
+ * repo-relative path to text.
+ *
+ * Both scans take their filesystem as a `Repo` for the same reason —
+ * "reports a link to a missing file", "reports an anchor matching no
+ * heading" and "reports a sentence that describes the wrong close rule"
+ * are what assertions 3, 5 and 6 must be able to do, and are exactly what
+ * the real repo, being correct, cannot demonstrate. A fake is the only
+ * place they are provable, which is the same trick `QueueProducer` and
+ * `TeamsSender` play on their vendor clients.
+ *
+ * A key with empty text is a directory: nothing unanchored is ever read,
+ * so a directory needs no content to exist.
+ */
+function fakeRepo(files: Record<string, string>): Repo {
+  return {
+    exists: (path) => path in files,
+    read: (path) => files[path] ?? "",
+  };
+}
+
+/** A manifest carrying `description.short` and `description.full`. */
+function manifestWith(description: {
+  short: string;
+  full: string;
+}): Record<string, string> {
+  return {
+    "teams/manifest.json": JSON.stringify({ description }, null, 2),
+  };
+}
+
+describe("the unanimity scanner", () => {
+  it("reads a JSON field's value, and only the field it was given", () => {
+    // The whole reason assertion 6 reads JSON as JSON. `description.short`
+    // here is a sibling the scan was not pointed at, and a raw-text scan
+    // of the same file reports it — which would make the assertion
+    // unfixable without editing a field nobody asked about.
+    const repo = fakeRepo(
+      manifestWith({
+        short: "Tells the author when all reviewers are done.",
+        full: "PRSync closes a round the moment it reaches quorum.",
+      })
+    );
+
+    const surface: Surface = {
+      path: "teams/manifest.json",
+      field: "description.full",
+    };
+
+    expect(
+      aliasReport(unanimityAliases({ surfaces: [surface], repo }))
+    ).toEqual([]);
+
+    // Pointed at the sibling instead it reports — so the clean result
+    // above is the field being read, not the scan finding nothing.
+    expect(
+      aliasReport(
+        unanimityAliases({
+          surfaces: [{ ...surface, field: "description.short" }],
+          repo,
+        })
+      )
+    ).toEqual([
+      "teams/manifest.json#description.short:1 all reviewers — Tells the author when all reviewers are done.",
+    ]);
+  });
+
+  it("catches the sentence the Teams manifest actually shipped", () => {
+    // Not a hypothetical: this is `description.full` as committed, and it
+    // is the sentence in front of every person installing the Teams app.
+    // "the last reviewer" is listed as a unanimity alias in
+    // `docs/ubiquitous-language.md` alongside "everyone" and "consensus",
+    // and a scanner that misses it goes green over the one surface this
+    // slice exists to correct.
+    const shipped =
+      "When an author marks a pull request ready for review, PRSync sends each reviewer on that round a direct message; when the last reviewer marks themselves done and the round closes, it tells the author.";
+
+    expect(
+      aliasReport(
+        unanimityAliases({
+          surfaces: [TEAMS_DESCRIPTION],
+          repo: fakeRepo({
+            [TEAMS_DESCRIPTION.path]: JSON.stringify({
+              description: { full: shipped },
+            }),
+          }),
+        })
+      )
+    ).toEqual([
+      `packages/bot/teams/manifest.json#description.full:1 the last reviewer — ${shipped}`,
+    ]);
+  });
+
+  it("names every alias the ubiquitous language lists", () => {
+    // The vocabulary, driven one sentence at a time. Each of these
+    // describes a close rule PRSync does not have, and each is the
+    // natural, friendly way to write the sentence — which is why the
+    // list is worth pinning rather than trusting to one regex.
+    for (const [sentence, alias] of [
+      ["The round closes when everyone has finished.", "everyone"],
+      ["A round closes on consensus.", "consensus"],
+      ["Rounds close unanimously.", "unanimous"],
+      ["It closes once all reviewers are done.", "all reviewers"],
+      ["The author hears back once the team has signed off.", "signed off"],
+      ["The round closes when the change is approved.", "approved"],
+      [
+        "It tells the author when the last reviewer marks themselves done.",
+        "the last reviewer",
+      ],
+    ] as const) {
+      const hits = unanimityAliases({
+        surfaces: [{ path: "surface.md" }],
+        repo: fakeRepo({ "surface.md": sentence }),
+      });
+
+      expect(
+        hits.map(({ alias: named }) => named),
+        sentence
+      ).toContain(alias);
+    }
+  });
+
+  it("reports a markdown surface by line, 1-based", () => {
+    // The README is the one derived surface that is a document, and a
+    // failure has to name a line a reader can jump to.
+    const repo = fakeRepo({
+      "README.md": [
+        "# PRSync",
+        "",
+        "The round closes when everyone has finished reviewing.",
+      ].join("\n"),
+    });
+
+    expect(
+      aliasReport(unanimityAliases({ surfaces: [{ path: "README.md" }], repo }))
+    ).toEqual([
+      "README.md:3 everyone — The round closes when everyone has finished reviewing.",
+    ]);
+  });
+
+  it("gives the same answer however the JSON is formatted", () => {
+    // The property that makes assertion 6 safe to leave in the suite: the
+    // manifests are formatted by Prettier and their indentation is not a
+    // decision anyone makes. A check against raw text moves its line
+    // numbers on a reformat and eventually gets deleted for crying wolf.
+    const value = "It closes when the last reviewer is done.";
+    const expected = [`m.json#description.full:1 the last reviewer — ${value}`];
+
+    for (const json of [
+      JSON.stringify({ description: { full: value } }, null, 2),
+      JSON.stringify({ description: { full: value } }),
+    ]) {
+      expect(
+        aliasReport(
+          unanimityAliases({
+            surfaces: [{ path: "m.json", field: "description.full" }],
+            repo: fakeRepo({ "m.json": json }),
+          })
+        )
+      ).toEqual(expected);
+    }
+  });
+
+  it("allows the two phrases the documents quote verbatim", () => {
+    // The allowance is load-bearing rather than decorative, and the
+    // quotation marks ARE the allowance.
+    //
+    // The guide is required to quote the panel's copy unchanged, and the
+    // pill reads "All reviewed" whether or not everyone on the reviewer
+    // list looked. The README quotes the AIUP strategy PRSync exists to
+    // serve — "wait for all reviewers, then act" is a description of how
+    // the team works, not a claim about when a round closes.
+    //
+    // Both are exempt quoted and checked as prose, so the scanner stays
+    // blunt about the sentence that would actually be wrong.
+    for (const quoted of [
+      'The pill reads "All reviewed".',
+      'That makes "wait for all reviewers, then act" the correct strategy.',
+    ]) {
+      expect(
+        aliasReport(
+          unanimityAliases({
+            surfaces: [{ path: "surface.md" }],
+            repo: fakeRepo({ "surface.md": quoted }),
+          })
+        ),
+        quoted
+      ).toEqual([]);
+    }
+
+    for (const prose of [
+      "The pill appears once all reviewers are done.",
+      "PRSync waits for all reviewers, then acts.",
+    ]) {
+      expect(
+        aliasReport(
+          unanimityAliases({
+            surfaces: [{ path: "surface.md" }],
+            repo: fakeRepo({ "surface.md": prose }),
+          })
+        ),
+        `the quotation allowance is swallowing a phrase it was meant to leave checked: ${prose}`
+      ).not.toEqual([]);
+    }
+  });
+
+  it("finds no text where a JSON field has been renamed or the file is not JSON", () => {
+    // What a vacuously green assertion 6 looks like from the inside:
+    // rename `description.full` and the scan has nothing to scan. It
+    // returns no text rather than throwing, because the floor below
+    // reports "this surface is empty" by name, which is a better failure
+    // than a parse trace from somewhere inside the scanner.
+    const repo = fakeRepo({
+      "m.json": JSON.stringify({ description: { summary: "quorum" } }),
+      "broken.json": "{ not json",
+      "nested.json": JSON.stringify({ description: { full: { en: "hi" } } }),
+    });
+
+    for (const surface of [
+      { path: "m.json", field: "description.full" },
+      { path: "broken.json", field: "description" },
+      // A field that resolves to an object, not a string: there is no
+      // sentence there to check.
+      { path: "nested.json", field: "description.full" },
+      { path: "absent.json", field: "description" },
+    ]) {
+      expect(surfaceText(surface, repo), surface.path).toBe("");
+      expect(
+        aliasReport(unanimityAliases({ surfaces: [surface], repo }))
+      ).toEqual([]);
+    }
+  });
+
+  it("reads a markdown surface whole and a JSON surface's value", () => {
+    const repo = fakeRepo({
+      "docs/user-guide.md": "# User guide\n\nQuorum closes a round.",
+      "m.json": JSON.stringify({ description: { full: "Quorum, not all." } }),
+    });
+
+    expect(surfaceText({ path: "docs/user-guide.md" }, repo)).toBe(
+      "# User guide\n\nQuorum closes a round."
+    );
+    expect(
+      surfaceText({ path: "m.json", field: "description.full" }, repo)
+    ).toBe("Quorum, not all.");
+  });
+});
+
+describe("the guides' close rule", () => {
   it("never describes closing in unanimity language", () => {
     // Assertion 5, strong and blunt. A round closes on quorum. Every
     // word here describes a close rule PRSync does not have, and the
     // natural, friendly sentence is the one that gets it wrong.
-    const guide = readDoc(userGuidePath, "docs/user-guide.md");
-    const hits = unanimityAliases(guide);
+    //
+    // Both guides, not just the user guide: the setup guide describes the
+    // close rule in passing when it explains what the operator should see
+    // working, and a wrong sentence there is the same wrong sentence.
+    const hits = unanimityAliases({
+      surfaces: GUIDES,
+      repo: repoAt(repoRoot),
+    });
 
     expect(
-      hits.map(({ alias, line, text }) => `${alias} — line ${line}: ${text}`),
-      "docs/user-guide.md describes closing in unanimity language; a round closes on quorum"
+      aliasReport(hits),
+      `these sentences describe closing in unanimity language; a round closes on quorum:\n  ${aliasReport(hits).join("\n  ")}`
+    ).toEqual([]);
+  });
+});
+
+describe("the derived surfaces' close rule", () => {
+  it("never describes closing in unanimity language", () => {
+    // Assertion 6, strong. The user guide is authoritative and these
+    // three summarise it, which means each is free to drift and none is
+    // read by anyone whose job is the domain. The Teams manifest's
+    // description is where it drifted, and it is the one surface a
+    // teammate cannot avoid reading.
+    const hits = unanimityAliases({
+      surfaces: DERIVED_SURFACES,
+      repo: repoAt(repoRoot),
+    });
+
+    expect(
+      aliasReport(hits),
+      `these derived surfaces describe closing in unanimity language; a round closes on quorum:\n  ${aliasReport(hits).join("\n  ")}`
     ).toEqual([]);
   });
 
-  it("allows the status pill to be quoted verbatim", () => {
-    // The allowance is load-bearing rather than decorative: the guide is
-    // required to quote the panel's copy unchanged, and the pill reads
-    // "All reviewed" whether or not a person on the reviewer list ever
-    // looked. Quoted it passes; as prose it is drift.
-    expect(unanimityAliases('The pill reads "All reviewed".')).toEqual([]);
+  it("has something to scan on every surface", () => {
+    // A floor, and the one that matters most here: `toEqual([])` is also
+    // what a renamed field, a moved manifest or a re-pathed README
+    // produces. Assertion 6 passing means nothing unless each of the five
+    // surfaces it and assertion 5 read actually yielded a sentence.
+    const repo = repoAt(repoRoot);
+
+    for (const surface of [...GUIDES, ...DERIVED_SURFACES]) {
+      const label = surface.field
+        ? `${surface.path}#${surface.field}`
+        : surface.path;
+
+      expect(
+        surfaceText(surface, repo).trim().length,
+        `${label} yielded no text, so scanning it proves nothing`
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("points the Marketplace listing at the user guide", () => {
+    // Structural, and narrower than the rule it serves. The listing is a
+    // summary plus a pointer; that it adds no claim the user guide does
+    // not make needs a human read, but a pointer that has been dropped
+    // is mechanically visible — and a Marketplace description that
+    // explains PRSync on its own authority is how the next contradiction
+    // gets written.
+    const text = surfaceText(MARKETPLACE_DESCRIPTION, repoAt(repoRoot));
 
     expect(
-      unanimityAliases("The pill appears once all reviewers are done."),
-      "the quoted-pill allowance is swallowing the phrase it was meant to leave checked"
-    ).not.toEqual([]);
+      text,
+      "packages/extension/vss-extension.json's description no longer points at docs/user-guide.md, so it is explaining PRSync on its own authority"
+    ).toContain("docs/user-guide.md");
+  });
+});
+
+describe("the alias scan's exclusions", () => {
+  it("reads the five surfaces and nothing else", () => {
+    // The exclusion asserted rather than merely arranged. A recording
+    // `Repo` is the only place "never reads" is a fact instead of an
+    // arrangement that happens to hold today — point either scan at a
+    // directory of documents and this goes red by path.
+    const real = repoAt(repoRoot);
+    const touched: string[] = [];
+    const recording: Repo = {
+      exists: (path) => {
+        touched.push(path);
+        return real.exists(path);
+      },
+      read: (path) => {
+        touched.push(path);
+        return real.read(path);
+      },
+    };
+
+    unanimityAliases({ surfaces: GUIDES, repo: recording });
+    unanimityAliases({ surfaces: DERIVED_SURFACES, repo: recording });
+
+    const forbidden = touched.filter((path) =>
+      NEVER_SCANNED.some((excluded) => path.startsWith(excluded))
+    );
+
+    expect(
+      forbidden,
+      `assertions 5 and 6 read the paper trail, which names the superseded rule on purpose:\n  ${forbidden.join("\n  ")}`
+    ).toEqual([]);
+
+    // And positively, so the exclusion above cannot be satisfied by a
+    // scan that reads nothing at all.
+    expect(new Set(touched)).toEqual(
+      new Set([...GUIDES, ...DERIVED_SURFACES].map(({ path }) => path))
+    );
+  });
+
+  it("would report on the paper trail, which is why it is pointed away from it", () => {
+    // The exclusion is load-bearing, not tidiness. `docs/ubiquitous-
+    // language.md` writes the wrong words down deliberately — its
+    // aliases-to-avoid columns and its "Unanimity language is drift"
+    // entry exist to make them recognisable — so a scan that reached it
+    // would fail on day one, for the right words in the right places,
+    // and the only available fix would be to delete the record.
+    const hits = unanimityAliases({
+      surfaces: [{ path: "docs/ubiquitous-language.md" }],
+      repo: repoAt(repoRoot),
+    });
+
+    expect(
+      hits.length,
+      "docs/ubiquitous-language.md no longer names the superseded close rule, so the exclusion is protecting nothing"
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -378,27 +767,6 @@ const CROSS_REFERENCED = [
   "docs/setup-guide.md",
   "docs/user-guide.md",
 ] as const;
-
-/**
- * A repository that exists for the length of one assertion: a map from
- * repo-relative path to text.
- *
- * The resolver takes its filesystem as a `Repo` for exactly this reason —
- * "reports a link to a missing file" and "reports an anchor matching no
- * heading" are the two things assertion 3 must be able to do and the two
- * things the real repo, being correct, cannot demonstrate. A fake is the
- * only place they are provable, which is the same trick `QueueProducer`
- * and `TeamsSender` play on their vendor clients.
- *
- * A key with empty text is a directory: nothing unanchored is ever read,
- * so a directory needs no content to exist.
- */
-function fakeRepo(files: Record<string, string>): Repo {
-  return {
-    exists: (path) => path in files,
-    read: (path) => files[path] ?? "",
-  };
-}
 
 /** Unresolved links as one line each, so a failure reads like a linter. */
 function report(hits: readonly UnresolvedLink[]): string[] {
