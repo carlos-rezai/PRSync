@@ -12,3 +12,4 @@ export * from "./fences/fences";
 export * from "./githubSlug/githubSlug";
 export * from "./section/section";
 export * from "./settingTokens/settingTokens";
+export * from "./stages/stages";

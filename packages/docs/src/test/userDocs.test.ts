@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { boldedTerms, section, settingTokens } from "../lib";
+import { boldedTerms, section, settingTokens, stageNumbers } from "../lib";
 import { readDocument, repoAt } from "../repo";
 import { fakeRepo, nothingExists, recordingRepo } from "./fixtures/fakes";
 import {
@@ -194,9 +194,6 @@ function aliasReport(hits: readonly UnanimityHit[]): string[] {
   );
 }
 
-/** A stage heading in `docs/setup-guide.md`, capturing its number. */
-const STAGE_HEADING = /^#+\s+Stage\s+(\d+)\b/;
-
 /**
  * The last stage the setup guide carries. Pinned rather than derived from
  * the document, because a count read out of the document it is checking
@@ -207,15 +204,6 @@ const STAGE_HEADING = /^#+\s+Stage\s+(\d+)\b/;
  * and a decision should have to touch this line.
  */
 const LAST_STAGE = 11;
-
-/** The stage numbers `markdown` declares, in the order they appear. */
-function stageNumbers(markdown: string): number[] {
-  return markdown
-    .split("\n")
-    .map((line) => line.match(STAGE_HEADING)?.[1])
-    .filter((number): number is string => number !== undefined)
-    .map(Number);
-}
 
 describe("the setup guide's stages", () => {
   it("carries every numbered stage, in ascending order", () => {
