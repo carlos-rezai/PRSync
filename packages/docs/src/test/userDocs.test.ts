@@ -1,16 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { unresolvedLinks, type UnresolvedLink } from "../checks";
+import {
+  surfaceLabel,
+  surfaceText,
+  unresolvedLinks,
+  type Surface,
+  type UnresolvedLink,
+} from "../checks";
 import { boldedTerms, section, settingTokens, stageNumbers } from "../lib";
 import { readDocument, repoAt } from "../repo";
 import { fakeRepo, nothingExists, recordingRepo } from "./fixtures/fakes";
-import {
-  unanimityAliases,
-  surfaceText,
-  type Surface,
-  type UnanimityHit,
-} from "./fixtures/markdown";
+import { unanimityAliases, type UnanimityHit } from "./fixtures/markdown";
 
 // The user-facing documentation ships no behaviour, so what rots is the
 // agreement between a document written in plain language and the domain
@@ -460,47 +461,6 @@ describe("the unanimity scanner", () => {
       ).not.toEqual([]);
     }
   });
-
-  it("finds no text where a JSON field has been renamed or the file is not JSON", () => {
-    // What a vacuously green assertion 6 looks like from the inside:
-    // rename `description.full` and the scan has nothing to scan. It
-    // returns no text rather than throwing, because the floor below
-    // reports "this surface is empty" by name, which is a better failure
-    // than a parse trace from somewhere inside the scanner.
-    const repo = fakeRepo({
-      "m.json": JSON.stringify({ description: { summary: "quorum" } }),
-      "broken.json": "{ not json",
-      "nested.json": JSON.stringify({ description: { full: { en: "hi" } } }),
-    });
-
-    for (const surface of [
-      { path: "m.json", field: "description.full" },
-      { path: "broken.json", field: "description" },
-      // A field that resolves to an object, not a string: there is no
-      // sentence there to check.
-      { path: "nested.json", field: "description.full" },
-      { path: "absent.json", field: "description" },
-    ]) {
-      expect(surfaceText(surface, repo), surface.path).toBe("");
-      expect(
-        aliasReport(unanimityAliases({ surfaces: [surface], repo }))
-      ).toEqual([]);
-    }
-  });
-
-  it("reads a markdown surface whole and a JSON surface's value", () => {
-    const repo = fakeRepo({
-      "docs/user-guide.md": "# User guide\n\nQuorum closes a round.",
-      "m.json": JSON.stringify({ description: { full: "Quorum, not all." } }),
-    });
-
-    expect(surfaceText({ path: "docs/user-guide.md" }, repo)).toBe(
-      "# User guide\n\nQuorum closes a round."
-    );
-    expect(
-      surfaceText({ path: "m.json", field: "description.full" }, repo)
-    ).toBe("Quorum, not all.");
-  });
 });
 
 describe("the guides' close rule", () => {
@@ -550,13 +510,9 @@ describe("the derived surfaces' close rule", () => {
     const repo = repoAt(repoRoot);
 
     for (const surface of [...GUIDES, ...DERIVED_SURFACES]) {
-      const label = surface.field
-        ? `${surface.path}#${surface.field}`
-        : surface.path;
-
       expect(
         surfaceText(surface, repo).trim().length,
-        `${label} yielded no text, so scanning it proves nothing`
+        `${surfaceLabel(surface)} yielded no text, so scanning it proves nothing`
       ).toBeGreaterThan(0);
     }
   });
