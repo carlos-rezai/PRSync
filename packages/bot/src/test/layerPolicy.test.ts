@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readSourceFiles, type SourceFile } from "./fixtures/sourceFiles";
 
 // Two of this slice's acceptance criteria are properties of the SOURCE,
 // not of any behaviour a test can drive:
@@ -40,43 +39,22 @@ const SELF = "test/layerPolicy.test.ts";
  */
 const EXCLUDED_PREFIXES = ["test/"];
 
-interface SourceFile {
-  /** Path relative to `src/`, forward-slashed, e.g. `teams/BotAdapter/BotAdapter.ts`. */
-  path: string;
-  text: string;
-}
-
 /**
  * @param includeTests Co-located tests reach for things their subject may
- * not — `TeamsBot.test.ts` drives Bot Framework's own
- * `TestAdapter`, which is the correct place for it. Rules about what
- * ships read production files only; rules about how storage is addressed
- * read everything, because a test that scanned a table would be asserting
- * against a repository the product forbids.
+ * not — `TeamsBot.test.ts` drives Bot Framework's own `TestAdapter`, which
+ * is the correct place for it. Rules about what ships read production
+ * files only; rules about how storage is addressed read everything,
+ * because a test that scanned a table would be asserting against a
+ * repository the product forbids.
  */
 function readSources(includeTests: boolean): SourceFile[] {
-  const files: SourceFile[] = [];
-
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = resolve(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-        continue;
-      }
-      if (!entry.name.endsWith(".ts") && !entry.name.endsWith(".tsx")) continue;
-      if (!includeTests && /\.test\.tsx?$/.test(entry.name)) continue;
-
-      const path = relative(srcRoot, full).split(sep).join("/");
-      if (path === SELF) continue;
-      if (EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix))) continue;
-
-      files.push({ path, text: readFileSync(full, "utf8") });
-    }
-  };
-
-  walk(srcRoot);
-  return files;
+  return readSourceFiles({
+    root: srcRoot,
+    includeTests,
+    exclude: (path) =>
+      path === SELF ||
+      EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix)),
+  });
 }
 
 /** Files whose import statements name `specifier` or a subpath of it. */
