@@ -1,5 +1,5 @@
 import { TableClient, type TableEntity } from "@azure/data-tables";
-import type { TeamsIdentity } from "../../lib";
+import { statusCodeOf, type TeamsIdentity } from "../../lib";
 
 // The repository is the ONLY layer that touches @azure/data-tables.
 // Every access is a point read/write by exact partition + row key: the
@@ -108,15 +108,4 @@ export function createTeamsIdentityRepository(
   return new TableStorageTeamsIdentityRepository(
     TableClient.fromConnectionString(connectionString, TABLE_NAME)
   );
-}
-
-// The @azure/data-tables SDK surfaces HTTP faults as RestError-shaped
-// objects carrying a numeric `statusCode`; read it structurally so the
-// repository stays the only layer coupled to the SDK.
-function statusCodeOf(error: unknown): number | undefined {
-  if (typeof error === "object" && error !== null && "statusCode" in error) {
-    const code: unknown = error.statusCode;
-    return typeof code === "number" ? code : undefined;
-  }
-  return undefined;
 }
