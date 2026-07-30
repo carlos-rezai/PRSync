@@ -10,6 +10,13 @@ and the bot are **two separate Function Apps** that share no code and no
 synchronous call: a Storage Queue is the entire boundary between them.
 That is deliberate — see [Accepted costs](#accepted-costs) at the end.
 
+This is a reference, read by lookup rather than straight through. The
+ordered path — what to do first, what cannot be swapped, and how you
+know each step worked — is [`setup-guide.md`](setup-guide.md), whose
+eleven stages link back to the sections here for every value and every
+failure. If you are standing PRSync up for the first time, start there
+and let it send you back.
+
 ---
 
 ## Prerequisite: Function App CORS must allow the ADO org origin
@@ -192,6 +199,13 @@ bot keeps working.
 The bot must exist as an Azure Bot resource before the Function App is of
 any use: the resource is what owns the app registration the adapter
 authenticates with, and what connects the Teams channel.
+
+These seven steps are deliberately not one stage of the setup guide:
+steps 1 to 3 are its [stage 2](setup-guide.md#stage-2--register-the-azure-bot-and-its-secret),
+step 4 is [stage 3](setup-guide.md#stage-3--deploy-the-bot-function-app),
+steps 5 and 6 are [stage 4](setup-guide.md#stage-4--messaging-endpoint-and-the-teams-channel),
+and step 7 is [stage 5](setup-guide.md#stage-5--allow-custom-app-upload-in-the-tenant).
+The order matters — step 4 is what gives step 5 a URL to point at.
 
 1. **Create the Azure Bot.** Portal → **Create a resource** → **Azure
    Bot**. Pricing tier **F0** (free) is sufficient. For **Type of App**
