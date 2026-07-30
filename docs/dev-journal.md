@@ -5,6 +5,78 @@ sessions. Newest entries at the top.
 
 ---
 
+## 2026-07-30 — Teams-notifications refactor (issue #25)
+
+Executed the 17-commit plan in
+`docs/refactor-plans/03-teams-notifications-refactor.md`. No behaviour
+changed, no card changed, no API contract changed, and nothing outside
+`packages/bot` was touched. The suite went from 103 tests across 18
+files to **121 across 22**, green under `lint`, `typecheck` and `test`
+after every commit.
+
+**`BotHost` was four modules wearing one filename.** It held the bot's
+activity routing, the four settings the adapter authenticates with, the
+adapter factory, and a hand-written translation between the Azure
+Functions HTTP types and Bot Framework's. The name was the tell — not a
+term from the ubiquitous language, and not a description of any one
+thing. The clearest evidence it had already split was that it had **two**
+test files, one per concern that happened to get tested; the source never
+followed. It is now `BotConfig`, `TeamsBot`, `BotAdapter` and
+`MessagingEndpoint`, each in a folder named after it, and the split was a
+pure move: every consumer already imported through the layer barrel, so
+the composition root and both entry points changed not at all, and the
+two existing test files changed one import line each and nothing else.
+
+**Splitting it exposed exactly what was untested.** Two of the four
+halves had no coverage at all: the HTTP translation — which copies every
+inbound header one by one, and therefore carries the JWT the whole
+anonymous `/api/messages` path depends on — and the adapter factory.
+`TeamsSender` was the only module in the package with no test whatsoever.
+Two of those three were untestable rather than untested, and for the same
+reason.
+
+**The structural port is the thing to reach for next time a vendor class
+blocks a test.** `TeamsSender` took a concrete `CloudAdapter`; there was
+no way to drive it without standing up Bot Framework. Narrowing the
+parameter to an interface naming the ONE method actually called —
+`ProactiveConversationOpener` — made it drivable through a recording fake
+with no Bot Framework in the file, and `CloudAdapter` satisfies the
+interface structurally, so the composition root did not change. Same move
+for the translation layer's two parameters. This is not a new pattern:
+`QueueProducer` in `packages/api` already does it to the Azure queue
+client, which is why that producer is testable with no storage account.
+The alternative was a cast — the fixtures already cast for
+`InvocationContext` and `HttpRequest`, which genuinely have no honest
+fake — and the port won because it makes the dependency one named method
+instead of a whole class, and because two of the three ports are on
+production signatures rather than buried in a fixture.
+
+**The docs-drift trap was armed and had never been sprung.** Three tests
+assert `.claude/CLAUDE.md` has not drifted from the source; that file is
+gitignored, so on a fresh clone they did not skip, they FAILED. There is
+no CI yet, which is the only reason nobody had hit it. They now skip when
+the file is absent, with the reasoning recorded above the describe.
+Verified both directions rather than assumed. Adding CI would have found
+this; this plan defused the trap instead, and CI still wants its own
+issue.
+
+**The gitignore trap recurred for the third time** (plan 01 commit 20,
+plan 02 commit 40, now plan 03 commit 16). The `teams/` layer table
+update was applied on disk and is unversioned. Future sessions read the
+on-disk file, so the convention IS documented, but force-adding
+(`git add -f`) overrides a deliberate `.gitignore` choice and stays the
+author's call. Commit 16 therefore has no git commit; 1–15 and 17 landed
+as planned. **Worth deciding once rather than rediscovering a fourth
+time.**
+
+**Left undone on purpose.** The status-code reader still has a third copy
+in the API's round repository — the two packages share no code and no
+synchronous call by design, so extracting a shared module would
+reintroduce the workspace-dependency deploy problem the design log ruled
+out; it is a recorded accepted cost, not a defect. Still outstanding from
+plan 02: the API's four-handler duplication, which belongs to
+`round-lifecycle` and wants its own issue. And CI, per above.
+
 ## 2026-07-26 — Extension-panel refactor (issue #14)
 
 Executed the 41-commit plan in
