@@ -41,7 +41,7 @@ const SELF = "test/layerPolicy.test.ts";
 const EXCLUDED_PREFIXES = ["test/"];
 
 interface SourceFile {
-  /** Path relative to `src/`, forward-slashed, e.g. `teams/BotHost/BotHost.ts`. */
+  /** Path relative to `src/`, forward-slashed, e.g. `teams/BotAdapter/BotAdapter.ts`. */
   path: string;
   text: string;
 }

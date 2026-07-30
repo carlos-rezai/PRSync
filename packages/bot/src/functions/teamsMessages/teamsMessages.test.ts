@@ -37,7 +37,7 @@ describe("teamsMessages", () => {
     // key, so a function-key-protected endpoint simply never receives an
     // activity. It is not an open endpoint — the adapter validates the Bot
     // Framework JWT against app id, password and tenant on every request
-    // (see BotHost.config.test.ts) — but the two facts have to be read
+    // (see BotConfig.test.ts) — but the two facts have to be read
     // together, which is why this one is pinned rather than left to a
     // deployment setting nobody diffs.
     expect(teamsMessagesOptions).toMatchObject({

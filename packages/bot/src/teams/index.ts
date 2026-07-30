@@ -6,8 +6,8 @@
 // endpoint from "../../teams", never from a module's internal file. See
 // .claude/CLAUDE.md.
 
+export * from "./BotAdapter/BotAdapter";
 export * from "./BotConfig/BotConfig";
-export * from "./BotHost/BotHost";
 export * from "./MessagingEndpoint/MessagingEndpoint";
 export * from "./TeamsBot/TeamsBot";
 export * from "./TeamsSender/TeamsSender";
