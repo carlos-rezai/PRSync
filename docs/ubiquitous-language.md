@@ -13,6 +13,12 @@ Extended 2026-07-27 during the Teams-notifications grill-me
 **Teams delivery** vocabulary and promoted the **NotificationPort**
 from a no-op stub to a real queue producer.
 
+Extended 2026-07-30 during the user-docs grill-me
+(`docs/design-logs/04-user-docs.md`), which added the
+**Documentation** vocabulary — the **Operator**, the three documents
+and what each owns, and the **Gloss** rule that keeps plain language
+from contradicting this file. No lifecycle or delivery term changed.
+
 ## Round lifecycle
 
 | Term                         | Definition                                                                                                                                                                                               | Aliases to avoid         |
@@ -92,6 +98,23 @@ Terms introduced during the Extension Panel grill-me
 | **Baseline** _(new)_          | The **Round fingerprint** of the last state the **Viewer** has seen or acted on; the viewer's own mutations reset it, so only others' changes register as **Drift**.                                                                | Snapshot, last-seen       |
 | **Refresh banner** _(new)_    | The info `MessageCard` shown when polling detects **Drift**; the **Viewer** must click it to re-render — PRSync never silently live-patches an open panel.                                                                          | Toast, alert, live update |
 
+## Documentation
+
+Terms introduced during the user-docs grill-me
+(`docs/design-logs/04-user-docs.md`, 2026-07-30). These name the
+_people PRSync is written for_ and the _documents written for them_ —
+the first vocabulary in this file that describes no runtime concept.
+
+| Term                             | Definition                                                                                                                                                         | Aliases to avoid                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| **Operator** _(new)_             | The person who stands PRSync up for an org and keeps it running; the only reader who holds Azure, Teams-tenant and ADO-org authority. Not a **Round** role.        | Admin, owner, maintainer         |
+| **Teammate** _(new)_             | Any person PRSync is deployed for. Becomes **Author**, **Reviewer** or **Bystander** per **Round**, and is **Reachable** only after their own **Install capture**. | User, member, end user           |
+| **Setup guide** _(new)_          | `docs/setup-guide.md` — the ordered path from nothing to a working PRSync, in eleven stages. Owns _sequence_ and names no setting value.                           | Install docs, getting started    |
+| **User guide** _(new)_           | `docs/user-guide.md` — the **Teammate**'s manual. Authoritative for what PRSync _does_; every other surface is a **Derived surface**.                              | Manual, help, docs               |
+| **Deployment reference** _(new)_ | `docs/deployment.md` — owns every setting _value_, the rationale behind it, and the failure symptoms. Read by lookup, never straight through.                      | Deployment guide, ops docs       |
+| **Gloss** _(new)_                | A plain-language restatement that names its canonical term **verbatim** and adds the counter-intuitive consequence. The **User guide** glosses; this file defines. | Definition, explanation, summary |
+| **Derived surface** _(new)_      | Any user-facing description that is not the **User guide** — the README, the Marketplace description, the Teams manifest's. May summarise; may never add a claim.  | Copy, listing, blurb             |
+
 ## Relationships
 
 - A **PR** (identified by its **PR key**) has many **Rounds**; at most
@@ -127,6 +150,16 @@ Terms introduced during the Extension Panel grill-me
   the same person may author some rounds and review others.
 - **Cancelled** and **Round closed** are both terminal; only **Round
   closed** notifies.
+- An **Operator** stands up one deployment; every **Teammate** on it
+  performs their own **Install capture**, which no **Operator** can do
+  on their behalf.
+- The **Setup guide** ends by handing a **Teammate** the **User guide**;
+  the **User guide** ends an unresolved "no DM arrived" at the
+  **Operator**, who alone can read the **Notification log**.
+- The **Setup guide** links into the **Deployment reference** for every
+  value and every failure, and restates neither.
+- The **User guide** carries a **Gloss** of each precise term; this file
+  carries the definition. A **Derived surface** carries neither.
 
 ## Example dialogue
 
@@ -167,6 +200,22 @@ Terms introduced during the Extension Panel grill-me
 > the queue and retries. Which means a **Round-closed notification**
 > might arrive twice. We'd rather the **Author** see it twice than never
 > see it at all."
+> **Dev:** "A **Teammate** says they never got a DM. Where do I send
+> them?"
+> **Domain expert:** "The **User guide** — and its first question is
+> whether they ever installed the app, because without **Install
+> capture** they're **Unreachable** and nothing told them. If that's not
+> it, it ends at you: the **Operator** is the only one who can read the
+> **Notification log**."
+> **Dev:** "Can I install it for them?"
+> **Domain expert:** "No. The **Operator** stands up the deployment;
+> every **Teammate** captures their own **Conversation reference**."
+> **Dev:** "The Teams listing says the **Author** hears back 'when the
+> last reviewer marks themselves done'. Do I fix that in the listing?"
+> **Domain expert:** "Fix it, yes — it contradicts **Quorum**. But
+> that's a **Derived surface**: it summarises the **User guide** and
+> never makes its own claim. The **User guide** carries the **Gloss**;
+> this file carries the definition."
 
 ## Flagged ambiguities
 
@@ -203,6 +252,21 @@ Terms introduced during the Extension Panel grill-me
   deliberate choice. A duplicate DM is an accepted outcome, not a bug;
   a _missing_ **Round-closed notification** is the failure the product
   exists to prevent.
+- **Operator is not a Round role** _(new)_ — **Author**, **Reviewer**
+  and **Bystander** are resolved against a **Round**; **Operator** is
+  resolved against a _deployment_ and appears in no round, no panel and
+  no notification. The same person is usually both, which is exactly
+  why the words must not be traded.
+- **Unanimity language is drift, not phrasing** _(new)_ — "when
+  everyone has finished", "all reviewers", "signed off", "consensus"
+  and "the last reviewer" all describe a close rule PRSync does not
+  have. A round closes on **Quorum**. Found and corrected once already
+  in the Teams manifest's description; any **Derived surface** is where
+  it will happen again.
+- **Define once, gloss anywhere** _(new)_ — this file defines a term;
+  the **User guide** carries a **Gloss** of it. A **Gloss** that stops
+  naming its canonical term verbatim has become a second, competing
+  definition — which is the failure the split exists to prevent.
 - **Author / Reviewer / Bystander are per-round roles, not accounts**
   _(new)_ — a **Viewer**'s role is resolved against the current round;
   the same person can be **Author** of one round and **Reviewer** or
@@ -221,3 +285,7 @@ Terms introduced during the Extension Panel grill-me
   state is modeled for it yet
 - Any channel or group-chat surface _(new)_ — the **Teams app package**
   is personal scope only; there is no notion of a team-wide post
+- In-panel help _(new)_ — the **Panel** has no help affordance, so the
+  **User guide** is reached from outside it; adding one is product code
+- Screenshots in either guide _(new)_ — ruled out while the **Panel** is
+  dual-themed and no environment exists to capture it from
