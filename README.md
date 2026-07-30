@@ -139,6 +139,7 @@ Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
 | 1. Round Lifecycle (data + API)                           | ✅ Complete      |
 | 2. Extension Panel                                        | ✅ Complete      |
 | 3. Teams Notifications (bot registration + static cards)  | ✅ Complete      |
+| 4. Documentation / User Manual                            | ⬜ Not started   |
 | Round history view                                        | ⏸ Deferred       |
 | Reminder notifications                                    | ⏸ Deferred       |
 | Interactive Teams card actions ("mark done" from Teams)   | ⏸ Deferred to v2 |
