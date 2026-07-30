@@ -4,17 +4,17 @@ Single source of truth for domain terminology. Read before naming
 anything. Update after every grill-me session.
 
 Restructured 2026-07-24 during the round-lifecycle grill-me
-(`docs/design-logs/01-round-lifecycle.md`), which also replaced the
-unanimity close rule with a **quorum** and added the **cancelled**
-state.
+([`01-round-lifecycle.md`](design-logs/01-round-lifecycle.md)), which
+also replaced the unanimity close rule with a **quorum** and added the
+**cancelled** state.
 
 Extended 2026-07-27 during the Teams-notifications grill-me
-(`docs/design-logs/03-teams-notifications.md`), which added the
-**Teams delivery** vocabulary and promoted the **NotificationPort**
-from a no-op stub to a real queue producer.
+([`03-teams-notifications.md`](design-logs/03-teams-notifications.md)),
+which added the **Teams delivery** vocabulary and promoted the
+**NotificationPort** from a no-op stub to a real queue producer.
 
 Extended 2026-07-30 during the user-docs grill-me
-(`docs/design-logs/04-user-docs.md`), which added the
+([`04-user-docs.md`](design-logs/04-user-docs.md)), which added the
 **Documentation** vocabulary — the **Operator**, the three documents
 and what each owns, and the **Gloss** rule that keeps plain language
 from contradicting this file. No lifecycle or delivery term changed.

@@ -82,6 +82,12 @@ export const CROSS_REFERENCED: readonly string[] = [
   README,
   SETUP_GUIDE,
   USER_GUIDE,
+  // Read as SOURCES, not merely as targets. `docs/deployment.md` gained
+  // back-links when the setup guide started routing to it, and the
+  // ubiquitous language links out too — and until now neither had ever
+  // had a link of its own resolved.
+  DEPLOYMENT,
+  UBIQUITOUS_LANGUAGE,
 ];
 
 /**
