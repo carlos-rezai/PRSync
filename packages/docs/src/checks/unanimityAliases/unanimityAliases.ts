@@ -1,34 +1,19 @@
-// The markdown reads the documentation tests share.
-//
-// Two tests in this package assert the agreement between a document and
-// the source it makes claims about: `deploymentDocs.test.ts` (every
-// setting the code reads is documented, under the package that reads it)
-// and `userDocs.test.ts` (the guides and the ubiquitous language do not
-// drift). Both need the same three things — open a document and fail
-// loudly if it is missing, isolate one section of it, and recognise a
-// PRSync setting token — and the first of them had all three private.
-//
-// It lives here rather than in either test for the same reason
-// `sourceFiles.ts` does: it is a cross-layer test helper, which is
-// exactly what `src/test/fixtures/` holds, and the same reason `fakes.ts`
-// and `fixtures.ts` sit outside the layer conventions.
-//
-// The link resolver at the bottom joins them for the same reason: the four
-// user-facing documents cross-reference each other instead of repeating
-// each other, and a link that resolves to nothing is a worse answer than
-// the duplication it replaced.
-//
-// The unanimity scanner joins them last, and it is the one reader here that
-// is not looking at markdown alone. Three DERIVED SURFACES summarise the
-// user guide — the README, the Marketplace listing's `description` and the
-// Teams manifest's `description.full` — and two of the three are strings
-// inside build manifests. So a surface is a path plus an optional JSON
-// field, and the check is against the field's VALUE rather than the file's
-// raw text: reformatting a manifest cannot break it, and a sibling field it
-// was not pointed at cannot trip it.
-
-import { surfaceText, surfaceLabel, type Surface } from "../../checks";
 import type { Repo } from "../../repo";
+import {
+  surfaceLabel,
+  surfaceText,
+  type Surface,
+} from "../surfaceText/surfaceText";
+
+// The one check here that is not looking at markdown alone. Three DERIVED
+// SURFACES summarise the user guide — the README, the Marketplace
+// listing's `description` and the Teams manifest's `description.full` —
+// and two of the three are strings inside build manifests, edited in files
+// whose reviewer is thinking about packaging rather than about the close
+// rule. The manifest's is the sentence every person installing the Teams
+// app reads, and it said the author hears back "when the last reviewer
+// marks themselves done": a close rule PRSync does not have, sitting in
+// front of every teammate PRSync was built for.
 
 /** One sentence describing a close rule PRSync does not have. */
 export interface UnanimityHit {

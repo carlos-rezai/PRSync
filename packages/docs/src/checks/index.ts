@@ -11,4 +11,5 @@
 // never through this barrel, to avoid import cycles. See .claude/CLAUDE.md.
 
 export * from "./surfaceText/surfaceText";
+export * from "./unanimityAliases/unanimityAliases";
 export * from "./unresolvedLinks/unresolvedLinks";
