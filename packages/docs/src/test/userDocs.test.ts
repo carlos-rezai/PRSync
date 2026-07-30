@@ -1,11 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { boldedTerms, section } from "../lib";
+import { boldedTerms, section, settingTokens } from "../lib";
 import { readDocument, repoAt } from "../repo";
 import { fakeRepo, nothingExists, recordingRepo } from "./fixtures/fakes";
 import {
-  SETTING_PATTERN,
   unresolvedLinks,
   unanimityAliases,
   surfaceText,
@@ -209,12 +208,6 @@ const STAGE_HEADING = /^#+\s+Stage\s+(\d+)\b/;
  */
 const LAST_STAGE = 11;
 
-interface TokenHit {
-  token: string;
-  line: number;
-  text: string;
-}
-
 /** The stage numbers `markdown` declares, in the order they appear. */
 function stageNumbers(markdown: string): number[] {
   return markdown
@@ -222,39 +215,6 @@ function stageNumbers(markdown: string): number[] {
     .map((line) => line.match(STAGE_HEADING)?.[1])
     .filter((number): number is string => number !== undefined)
     .map(Number);
-}
-
-/**
- * `line` with every markdown link removed — both the text and the
- * destination.
- *
- * The setup guide is allowed to POINT at a setting; it is not allowed to
- * name one as prose. A link is what a pointer looks like, so stripping
- * links first is what distinguishes "read the bot settings [here]" from a
- * second copy of the settings table.
- */
-function withoutLinks(line: string): string {
-  return line
-    .replace(/\[[^\]]*\]\([^)]*\)/g, " ") // [text](destination)
-    .replace(/<[^>\s]+>/g, " "); // <https://autolink>
-}
-
-/**
- * Every PRSync setting token in `markdown` that is not inside a link.
- *
- * Code spans are deliberately NOT exempt: a backticked setting name is
- * the exact shape the duplicated configuration table would take.
- */
-function settingTokens(markdown: string): TokenHit[] {
-  const hits: TokenHit[] = [];
-
-  markdown.split("\n").forEach((raw, index) => {
-    for (const token of withoutLinks(raw).match(SETTING_PATTERN) ?? []) {
-      hits.push({ token, line: index + 1, text: raw.trim() });
-    }
-  });
-
-  return hits;
 }
 
 describe("the setup guide's stages", () => {
@@ -288,30 +248,6 @@ describe("the setup guide's ownership", () => {
       hits.map(({ token, line, text }) => `${token} — line ${line}: ${text}`),
       "docs/setup-guide.md names settings docs/deployment.md owns; it should link to them instead"
     ).toEqual([]);
-  });
-
-  it("allows a setting to be pointed at by a link", () => {
-    // The allowance is what makes the rule followable rather than a ban
-    // on ever mentioning configuration: the guide has to send the reader
-    // somewhere. Linked it passes; written as prose or as a code span it
-    // is the duplication.
-    expect(
-      settingTokens(
-        "Then set [`MICROSOFT_APP_ID`](deployment.md#prerequisite-bot-configuration)."
-      )
-    ).toEqual([]);
-
-    for (const naming of [
-      "Set `MICROSOFT_APP_TYPE` to SingleTenant.",
-      "AZURE_QUEUES_CONNECTION_STRING is required.",
-      "Optionally override PRSYNC_DEFAULT_QUORUM.",
-      "The build reads VITE_API_BASE_URL.",
-    ]) {
-      expect(
-        settingTokens(naming),
-        `the link allowance is swallowing a setting named outside one: ${naming}`
-      ).not.toEqual([]);
-    }
   });
 });
 

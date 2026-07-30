@@ -2,9 +2,8 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { section } from "../lib";
+import { SETTING_PATTERN, section } from "../lib";
 import { readDocument, readSourceFiles } from "../repo";
-import { SETTING_PATTERN } from "./fixtures/markdown";
 
 // This slice ships documentation, so there is no behaviour to drive. What
 // there IS, and what rots silently, is the agreement between a document

@@ -31,20 +31,6 @@ import { posix } from "node:path";
 import { githubSlug, outsideFences } from "../../lib";
 import type { Repo } from "../../repo";
 
-/**
- * The shapes every PRSync deployment setting takes. Names are discovered
- * from source rather than listed anywhere on purpose: a hardcoded list is
- * one more thing to forget to update, and would make a test pass by
- * agreeing with itself.
- *
- * Note the `g` flag: use this with `String.prototype.match`, which resets
- * `lastIndex` for you. `.test()` and `.exec()` on a shared global regex
- * resume from wherever the previous caller left off, and two test files
- * now consume this one.
- */
-export const SETTING_PATTERN =
-  /\b(?:MICROSOFT_APP_[A-Z0-9_]+|AZURE_[A-Z0-9_]*CONNECTION_STRING|PRSYNC_[A-Z0-9_]+|VITE_[A-Z0-9_]+)\b/g;
-
 /** Why a link resolves to nothing. */
 export type UnresolvedReason = "no such file" | "no such heading";
 
