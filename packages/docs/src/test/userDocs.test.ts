@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { repoAt, type Repo } from "../repo";
+import { repoAt } from "../repo";
+import { fakeRepo, nothingExists, recordingRepo } from "./fixtures/fakes";
 import {
   SETTING_PATTERN,
   readDoc,
@@ -372,28 +373,6 @@ describe("the user guide's gloss section", () => {
   });
 });
 
-/**
- * A repository that exists for the length of one assertion: a map from
- * repo-relative path to text.
- *
- * Both scans take their filesystem as a `Repo` for the same reason —
- * "reports a link to a missing file", "reports an anchor matching no
- * heading" and "reports a sentence that describes the wrong close rule"
- * are what assertions 3, 5 and 6 must be able to do, and are exactly what
- * the real repo, being correct, cannot demonstrate. A fake is the only
- * place they are provable, which is the same trick `QueueProducer` and
- * `TeamsSender` play on their vendor clients.
- *
- * A key with empty text is a directory: nothing unanchored is ever read,
- * so a directory needs no content to exist.
- */
-function fakeRepo(files: Record<string, string>): Repo {
-  return {
-    exists: (path) => path in files,
-    read: (path) => files[path] ?? "",
-  };
-}
-
 /** A manifest carrying `description.short` and `description.full`. */
 function manifestWith(description: {
   short: string;
@@ -701,18 +680,7 @@ describe("the alias scan's exclusions", () => {
     // `Repo` is the only place "never reads" is a fact instead of an
     // arrangement that happens to hold today — point either scan at a
     // directory of documents and this goes red by path.
-    const real = repoAt(repoRoot);
-    const touched: string[] = [];
-    const recording: Repo = {
-      exists: (path) => {
-        touched.push(path);
-        return real.exists(path);
-      },
-      read: (path) => {
-        touched.push(path);
-        return real.read(path);
-      },
-    };
+    const { repo: recording, touched } = recordingRepo(repoAt(repoRoot));
 
     unanimityAliases({ surfaces: GUIDES, repo: recording });
     unanimityAliases({ surfaces: DERIVED_SURFACES, repo: recording });
@@ -1023,14 +991,11 @@ describe("the documents' cross-references", () => {
     // documents in the set are READ, never existence-checked — the caller
     // pins those three paths, and a missing one is `readDoc`'s failure to
     // report, not a link to nowhere.
-    const real = repoAt(repoRoot);
-    const nothingExists: Repo = {
-      exists: () => false,
-      read: (path) => real.read(path),
-    };
-
     const documents = report(
-      unresolvedLinks({ documents: [...CROSS_REFERENCED], repo: nothingExists })
+      unresolvedLinks({
+        documents: [...CROSS_REFERENCED],
+        repo: nothingExists(repoAt(repoRoot)),
+      })
     ).map((line) => line.split(":")[0]);
 
     expect(
