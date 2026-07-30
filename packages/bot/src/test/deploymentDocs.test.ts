@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readSourceFiles } from "./fixtures/sourceFiles";
 
 // This slice ships documentation, so there is no behaviour to drive. What
 // there IS, and what rots silently, is the agreement between a document
@@ -61,28 +62,20 @@ function readDoc(path: string, label: string): string {
 function discoverSettings(): DiscoveredSetting[] {
   const found = new Map<string, DiscoveredSetting>();
 
-  const walk = (dir: string, pkg: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = resolve(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name !== "test" && entry.name !== "node_modules") {
-          walk(full, pkg);
-        }
-        continue;
-      }
-      if (!/\.tsx?$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name)) {
-        continue;
-      }
-      for (const name of readFileSync(full, "utf8").match(SETTING_PATTERN) ?? []) {
-        found.set(`${pkg}:${name}`, { package: pkg, name });
-      }
-    }
-  };
-
   for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
     const src = resolve(packagesDir, entry.name, "src");
-    if (entry.isDirectory() && existsSync(src)) {
-      walk(src, entry.name);
+    if (!entry.isDirectory() || !existsSync(src)) continue;
+
+    const pkg = entry.name;
+    const sources = readSourceFiles({
+      root: src,
+      exclude: (path) => path.startsWith("test/"),
+    });
+
+    for (const file of sources) {
+      for (const name of file.text.match(SETTING_PATTERN) ?? []) {
+        found.set(`${pkg}:${name}`, { package: pkg, name });
+      }
     }
   }
 
@@ -110,7 +103,9 @@ function section(markdown: string, heading: RegExp): string | undefined {
     if (isFence) fenced = !fenced;
   }
 
-  const start = lines.findIndex((line, i) => outsideFence[i] && heading.test(line));
+  const start = lines.findIndex(
+    (line, i) => outsideFence[i] && heading.test(line)
+  );
   if (start === -1) return undefined;
 
   const depth = ((lines[start] ?? "").match(/^#+/) ?? ["##"])[0].length;
@@ -195,7 +190,10 @@ describe("deployment documentation", () => {
     ) as { scripts?: Record<string, string> };
 
     const artifact = pkg.scripts?.package?.match(/([\w.-]+\.zip)/)?.[1];
-    expect(artifact, "packages/bot's package script produces no .zip").toBeTruthy();
+    expect(
+      artifact,
+      "packages/bot's package script produces no .zip"
+    ).toBeTruthy();
 
     const doc = readDoc(deploymentDocPath, "docs/deployment.md");
 
@@ -248,7 +246,10 @@ describe("deployment documentation", () => {
     ).toBeTruthy();
 
     for (const [subject, pattern] of [
-      ["two deploy targets", /two (Function Apps|deploy targets)|separate Function App|second Function App/i],
+      [
+        "two deploy targets",
+        /two (Function Apps|deploy targets)|separate Function App|second Function App/i,
+      ],
       ["two sets of app settings", /app settings/i],
       ["the queue envelope declared twice", /envelope/i],
       ["duplicate DMs being possible by design", /duplicate/i],
@@ -263,10 +264,17 @@ describe("deployment documentation", () => {
     // rather than taken on the document's word — the two packages share
     // no code and no synchronous call, which is what forces the copy.
     const declarers = [
-      resolve(packagesDir, "api/src/services/QueueNotificationPort/QueueNotificationPort.ts"),
+      resolve(
+        packagesDir,
+        "api/src/services/QueueNotificationPort/QueueNotificationPort.ts"
+      ),
       resolve(packagesDir, "bot/src/lib/types/types.ts"),
-    ].filter((path) =>
-      existsSync(path) && /export interface NotificationMessage\b/.test(readFileSync(path, "utf8"))
+    ].filter(
+      (path) =>
+        existsSync(path) &&
+        /export interface NotificationMessage\b/.test(
+          readFileSync(path, "utf8")
+        )
     );
 
     expect(
@@ -283,7 +291,10 @@ describe(".claude/CLAUDE.md", () => {
     // the other Function App that they do not need it.
     const doc = readDoc(claudeMdPath, ".claude/CLAUDE.md");
     const body = section(doc, /^#+\s.*environment variables/i);
-    expect(body, ".claude/CLAUDE.md has no Environment Variables section").toBeTruthy();
+    expect(
+      body,
+      ".claude/CLAUDE.md has no Environment Variables section"
+    ).toBeTruthy();
 
     // The block is grouped by `# packages/<name>` comment lines.
     const declared = new Set<string>();
@@ -315,7 +326,10 @@ describe(".claude/CLAUDE.md", () => {
     // layers were introduced by this feature and are the deviation the
     // issue asks be recorded, since design logs are immutable snapshots.
     const doc = readDoc(claudeMdPath, ".claude/CLAUDE.md");
-    const body = section(doc, /^#+\s+Layer Responsibilities \(within `packages\/bot\/src\/`\)/);
+    const body = section(
+      doc,
+      /^#+\s+Layer Responsibilities \(within `packages\/bot\/src\/`\)/
+    );
 
     expect(
       body,
@@ -324,7 +338,9 @@ describe(".claude/CLAUDE.md", () => {
 
     // A layer is a directory with a barrel — the same definition the
     // package's own import conventions use.
-    const layers = readdirSync(resolve(packageRoot, "src"), { withFileTypes: true })
+    const layers = readdirSync(resolve(packageRoot, "src"), {
+      withFileTypes: true,
+    })
       .filter(
         (entry) =>
           entry.isDirectory() &&
@@ -335,7 +351,9 @@ describe(".claude/CLAUDE.md", () => {
 
     expect(layers.length).toBeGreaterThan(0);
 
-    const undocumented = layers.filter((layer) => !(body as string).includes(`${layer}/`));
+    const undocumented = layers.filter(
+      (layer) => !(body as string).includes(`${layer}/`)
+    );
 
     expect(
       undocumented,
@@ -350,7 +368,10 @@ describe(".claude/CLAUDE.md", () => {
     const doc = readDoc(claudeMdPath, ".claude/CLAUDE.md");
     const body = section(doc, /^#+\s+Feature 3\b/);
 
-    expect(body, ".claude/CLAUDE.md has no Feature 3 build-status entry").toBeTruthy();
+    expect(
+      body,
+      ".claude/CLAUDE.md has no Feature 3 build-status entry"
+    ).toBeTruthy();
 
     expect(
       /^\s*- \[ \]/m.test(body as string),
