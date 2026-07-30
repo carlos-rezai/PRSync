@@ -1,9 +1,8 @@
 import {
   CardFactory,
-  CloudAdapter,
   MessageFactory,
-  TurnContext,
   type ConversationReference,
+  type TurnContext,
 } from "botbuilder";
 import type { AdaptiveCard, ConversationRef } from "../../lib";
 
@@ -12,6 +11,21 @@ import type { AdaptiveCard, ConversationRef } from "../../lib";
 // end-to-end with no Bot Framework and no Teams in its test at all.
 // Everything about WHICH card and WHOSE chat is decided above this line;
 // everything below it is a vendor call.
+
+/**
+ * The adapter's outbound half, as this module needs it. Structural on
+ * purpose: `CloudAdapter` satisfies it without knowing it exists, which is
+ * what lets the send below be driven with no Bot Framework standing up —
+ * the same trick `QueueProducer` plays on the Azure queue client in
+ * `packages/api`.
+ */
+export interface ProactiveConversationOpener {
+  continueConversationAsync(
+    botAppId: string,
+    reference: Partial<ConversationReference>,
+    logic: (context: TurnContext) => Promise<void>
+  ): Promise<void>;
+}
 
 export interface TeamsSender {
   /** Post a card into a captured 1:1 conversation. */
@@ -29,7 +43,7 @@ export interface TeamsSender {
  * conversation had just spoken.
  */
 export function createTeamsSender(
-  adapter: CloudAdapter,
+  adapter: ProactiveConversationOpener,
   appId: string
 ): TeamsSender {
   return {
