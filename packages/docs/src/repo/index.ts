@@ -8,4 +8,5 @@
 // internal file. Within-layer siblings import each other by direct path,
 // never through this barrel, to avoid import cycles. See .claude/CLAUDE.md.
 
+export * from "./readDocument/readDocument";
 export * from "./repoAt/repoAt";

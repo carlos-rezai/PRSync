@@ -27,9 +27,7 @@
 // raw text: reformatting a manifest cannot break it, and a sibling field it
 // was not pointed at cannot trip it.
 
-import { existsSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
-import { expect } from "vitest";
 import type { Repo } from "../../repo";
 
 /**
@@ -45,16 +43,6 @@ import type { Repo } from "../../repo";
  */
 export const SETTING_PATTERN =
   /\b(?:MICROSOFT_APP_[A-Z0-9_]+|AZURE_[A-Z0-9_]*CONNECTION_STRING|PRSYNC_[A-Z0-9_]+|VITE_[A-Z0-9_]+)\b/g;
-
-/**
- * A document's full text, failing under its own name if it is absent. The
- * label is what a reader sees when it is missing, so it is the repo-root
- * path rather than the resolved absolute one.
- */
-export function readDoc(path: string, label: string): string {
-  expect(existsSync(path), `${label} is missing`).toBe(true);
-  return readFileSync(path, "utf8");
-}
 
 /**
  * Which of `lines` are outside a fenced code block, one flag per line. A

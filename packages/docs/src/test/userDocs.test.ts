@@ -1,11 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { repoAt } from "../repo";
+import { readDocument, repoAt } from "../repo";
 import { fakeRepo, nothingExists, recordingRepo } from "./fixtures/fakes";
 import {
   SETTING_PATTERN,
-  readDoc,
   section,
   githubSlug,
   unresolvedLinks,
@@ -283,7 +282,7 @@ describe("the setup guide's stages", () => {
     // so a missing or reordered stage is not a formatting problem — it is
     // the document's content being wrong. This proves the headings and
     // says nothing at all about what is under them.
-    const guide = readDoc(setupGuidePath, "docs/setup-guide.md");
+    const guide = readDocument(setupGuidePath, "docs/setup-guide.md");
     const stages = stageNumbers(guide);
 
     const expected = Array.from({ length: LAST_STAGE + 1 }, (_, i) => i);
@@ -301,7 +300,7 @@ describe("the setup guide's ownership", () => {
     // this guide owns order. A setting named here is a second copy of a
     // table that already exists, and the copy is the one that goes stale
     // — which is the whole reason the two documents were split.
-    const guide = readDoc(setupGuidePath, "docs/setup-guide.md");
+    const guide = readDocument(setupGuidePath, "docs/setup-guide.md");
     const hits = settingTokens(guide);
 
     expect(
@@ -341,8 +340,8 @@ describe("the user guide's gloss section", () => {
     // defines. A gloss whose term no longer exists upstream is either
     // glossing a renamed concept or has invented one of its own, and a
     // reader has no way to tell those apart from the prose.
-    const guide = readDoc(userGuidePath, "docs/user-guide.md");
-    const language = readDoc(languagePath, "docs/ubiquitous-language.md");
+    const guide = readDocument(userGuidePath, "docs/user-guide.md");
+    const language = readDocument(languagePath, "docs/ubiquitous-language.md");
 
     const gloss = section(guide, GLOSS_HEADING);
     expect(
@@ -989,7 +988,7 @@ describe("the documents' cross-references", () => {
     //
     // It also pins which side of the port each path goes through: the
     // documents in the set are READ, never existence-checked — the caller
-    // pins those three paths, and a missing one is `readDoc`'s failure to
+    // pins those three paths, and a missing one is `readDocument`'s failure to
     // report, not a link to nowhere.
     const documents = report(
       unresolvedLinks({

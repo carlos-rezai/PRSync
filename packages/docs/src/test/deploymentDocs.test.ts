@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readDocument } from "../repo";
 import { readSourceFiles } from "./fixtures/sourceFiles";
-import { SETTING_PATTERN, readDoc, section } from "./fixtures/markdown";
+import { SETTING_PATTERN, section } from "./fixtures/markdown";
 
 // This slice ships documentation, so there is no behaviour to drive. What
 // there IS, and what rots silently, is the agreement between a document
@@ -81,7 +82,7 @@ describe("deployment documentation", () => {
     // A setting that exists only in code is the silent-failure case: the
     // Function App starts, the queue trigger binds to nothing, and the
     // first missing DM is the only evidence.
-    const doc = readDoc(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
     const settings = discoverSettings();
 
     expect(settings.length).toBeGreaterThan(0);
@@ -112,7 +113,7 @@ describe("deployment documentation", () => {
     expect(route, "teamsMessages declares no route").toBeTruthy();
     expect(authLevel).toBe("anonymous");
 
-    const doc = readDoc(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
 
     expect(
       doc,
@@ -151,7 +152,7 @@ describe("deployment documentation", () => {
       "packages/bot's package script produces no .zip"
     ).toBeTruthy();
 
-    const doc = readDoc(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
 
     expect(
       doc,
@@ -170,7 +171,7 @@ describe("deployment documentation", () => {
   it("documents the local development story under its own heading", () => {
     // Weak by construction — see the file header. It asserts the section
     // exists and addresses both halves, not that the steps are followable.
-    const doc = readDoc(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
     const body = section(doc, /^#+\s.*local development/i);
 
     expect(
@@ -193,7 +194,7 @@ describe("deployment documentation", () => {
     // Also weak by construction. These four are deliberate trades, and an
     // undocumented deliberate trade is indistinguishable from an
     // oversight to the next person to read the repo.
-    const doc = readDoc(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
     const body = section(doc, /^#+\s.*accepted costs/i);
 
     expect(
@@ -260,7 +261,7 @@ projectInstructions(".claude/CLAUDE.md", () => {
     // Presence anywhere in the file is not enough. A setting listed only
     // under the package that does NOT read it tells someone configuring
     // the other Function App that they do not need it.
-    const doc = readDoc(claudeMdPath, ".claude/CLAUDE.md");
+    const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
     const body = section(doc, /^#+\s.*environment variables/i);
     expect(
       body,
@@ -296,7 +297,7 @@ projectInstructions(".claude/CLAUDE.md", () => {
     // The api and extension packages each have a layer table; the bot's
     // layers were introduced by this feature and are the deviation the
     // issue asks be recorded, since design logs are immutable snapshots.
-    const doc = readDoc(claudeMdPath, ".claude/CLAUDE.md");
+    const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
     const body = section(
       doc,
       /^#+\s+Layer Responsibilities \(within `packages\/bot\/src\/`\)/
@@ -336,7 +337,7 @@ projectInstructions(".claude/CLAUDE.md", () => {
     // The build-status entry is the first thing read about where the
     // project stands. A shipped feature still listed as not started is a
     // claim the repo contradicts.
-    const doc = readDoc(claudeMdPath, ".claude/CLAUDE.md");
+    const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
     const body = section(doc, /^#+\s+Feature 3\b/);
 
     expect(
