@@ -1,5 +1,9 @@
 import { TableClient, type TableEntity } from "@azure/data-tables";
-import type { DeliveryStatus, NotificationLogEntry } from "../../lib";
+import {
+  statusCodeOf,
+  type DeliveryStatus,
+  type NotificationLogEntry,
+} from "../../lib";
 
 // The delivery record, and the only reason a redelivered message can come
 // out exactly-once. Like `TeamsIdentityRepository` next door, this layer
@@ -96,15 +100,4 @@ export function createNotificationLogRepository(
   return new TableStorageNotificationLogRepository(
     TableClient.fromConnectionString(connectionString, TABLE_NAME)
   );
-}
-
-// The @azure/data-tables SDK surfaces HTTP faults as RestError-shaped
-// objects carrying a numeric `statusCode`; read it structurally so the
-// repository stays the only layer coupled to the SDK.
-function statusCodeOf(error: unknown): number | undefined {
-  if (typeof error === "object" && error !== null && "statusCode" in error) {
-    const code: unknown = error.statusCode;
-    return typeof code === "number" ? code : undefined;
-  }
-  return undefined;
 }
