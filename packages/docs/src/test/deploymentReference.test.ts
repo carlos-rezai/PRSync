@@ -1,27 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { SETTING_PATTERN, section } from "../lib";
-import { readDocument, readSourceFiles } from "../repo";
+import { section } from "../lib";
+import { readDocument } from "../repo";
+import { at, DEPLOYMENT, repoRoot } from "./documents";
+import { discoverSettings } from "./settings";
 
-// This slice ships documentation, so there is no behaviour to drive. What
-// there IS, and what rots silently, is the agreement between a document
-// and the source it makes claims about:
+// `docs/deployment.md` is the lookup document: it owns setting VALUES,
+// the rationale behind them, and what each failure looks like. Nothing in
+// it ships, so there is no behaviour to drive — what rots silently is the
+// agreement between the document and the source it makes claims about:
 //
 //   1. a setting the code reads but no document names is a deploy that
 //      comes up healthy and does nothing — the failure mode the whole
-//      deployment doc exists to prevent;
+//      document exists to prevent;
 //   2. the anonymous-endpoint rationale is a claim about a value
 //      `teamsMessages.ts` owns. Change the value and the rationale
-//      becomes a lie that reads as a considered decision;
-//   3. a layer added to `packages/bot/src/` that `.claude/CLAUDE.md`
-//      never learns about is a convention nobody can follow.
+//      becomes a lie that reads as a considered decision.
 //
-// Those are asserted by reading source and docs together, in the spirit of
+// Both are asserted by reading source and docs together, in the spirit of
 // `packages/bot`'s `packaging.test.ts` and `layerPolicy.test.ts`, which is
-// where this file itself lived until the documentation got a workspace of
-// its own.
+// where this file lived until the documentation got a workspace of its
+// own.
 //
 // The last two describes — Local development and Accepted costs — are
 // weaker by nature, and deliberately so. Prose quality is not mechanically
@@ -29,59 +29,19 @@ import { readDocument, readSourceFiles } from "../repo";
 // explicit heading. They pass on a sentence that merely contains the word;
 // what they catch is the section going missing entirely.
 
-const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
-
 const packagesDir = resolve(repoRoot, "packages");
 // The bot is read as EVIDENCE here rather than as this workspace's own
 // source, so it is named from the repo root like every other subject these
-// tests read. It was `../../` while this file lived inside that package.
+// tests read.
 const botRoot = resolve(packagesDir, "bot");
-const deploymentDocPath = resolve(repoRoot, "docs/deployment.md");
-const claudeMdPath = resolve(repoRoot, ".claude/CLAUDE.md");
-
-interface DiscoveredSetting {
-  /** The workspace directory that reads it, e.g. `bot`. */
-  package: string;
-  /** The setting name, e.g. `MICROSOFT_APP_TENANT_ID`. */
-  name: string;
-}
-
-/**
- * Every setting name that ships. Tests and `src/test/` are skipped: a
- * fixture naming a setting is not a deployment requirement, and this file
- * names several itself.
- */
-function discoverSettings(): DiscoveredSetting[] {
-  const found = new Map<string, DiscoveredSetting>();
-
-  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
-    const src = resolve(packagesDir, entry.name, "src");
-    if (!entry.isDirectory() || !existsSync(src)) continue;
-
-    const pkg = entry.name;
-    const sources = readSourceFiles({
-      root: src,
-      exclude: (path) => path.startsWith("test/"),
-    });
-
-    for (const file of sources) {
-      for (const name of file.text.match(SETTING_PATTERN) ?? []) {
-        found.set(`${pkg}:${name}`, { package: pkg, name });
-      }
-    }
-  }
-
-  return [...found.values()].sort((a, b) =>
-    `${a.package}:${a.name}`.localeCompare(`${b.package}:${b.name}`)
-  );
-}
+const deploymentDocPath = at(DEPLOYMENT);
 
 describe("deployment documentation", () => {
   it("names every setting the source actually reads", () => {
     // A setting that exists only in code is the silent-failure case: the
     // Function App starts, the queue trigger binds to nothing, and the
     // first missing DM is the only evidence.
-    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, DEPLOYMENT);
     const settings = discoverSettings();
 
     expect(settings.length).toBeGreaterThan(0);
@@ -112,7 +72,7 @@ describe("deployment documentation", () => {
     expect(route, "teamsMessages declares no route").toBeTruthy();
     expect(authLevel).toBe("anonymous");
 
-    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, DEPLOYMENT);
 
     expect(
       doc,
@@ -151,7 +111,7 @@ describe("deployment documentation", () => {
       "packages/bot's package script produces no .zip"
     ).toBeTruthy();
 
-    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, DEPLOYMENT);
 
     expect(
       doc,
@@ -170,7 +130,7 @@ describe("deployment documentation", () => {
   it("documents the local development story under its own heading", () => {
     // Weak by construction — see the file header. It asserts the section
     // exists and addresses both halves, not that the steps are followable.
-    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, DEPLOYMENT);
     const body = section(doc, /^#+\s.*local development/i);
 
     expect(
@@ -193,7 +153,7 @@ describe("deployment documentation", () => {
     // Also weak by construction. These four are deliberate trades, and an
     // undocumented deliberate trade is indistinguishable from an
     // oversight to the next person to read the repo.
-    const doc = readDocument(deploymentDocPath, "docs/deployment.md");
+    const doc = readDocument(deploymentDocPath, DEPLOYMENT);
     const body = section(doc, /^#+\s.*accepted costs/i);
 
     expect(
@@ -237,120 +197,5 @@ describe("deployment documentation", () => {
       declarers.length,
       "the accepted-costs section records a duplicated queue envelope, but NotificationMessage is no longer declared in both packages"
     ).toBe(2);
-  });
-});
-
-// `.claude/CLAUDE.md` is a deliberate local override and is gitignored, so
-// a fresh clone does not have it. These three tests guard the AUTHOR's
-// working copy against drift between the project instructions and the
-// source — a real check, and the only place the bot's layer conventions are
-// recorded, since design logs are immutable snapshots.
-//
-// They are skipped rather than failed when the file is absent. Failing
-// would mean a clone cannot get the suite green; deleting them gives up
-// the check; making them pass everywhere means force-adding a gitignored
-// file, which is the author's call and not a test's. A clone was never
-// given the file to drift from, so there is nothing there to assert
-// against. In every working copy that HAS it, these run and still fail on
-// real drift.
-const projectInstructions = existsSync(claudeMdPath) ? describe : describe.skip;
-
-projectInstructions(".claude/CLAUDE.md", () => {
-  it("documents each setting under the package that reads it", () => {
-    // Presence anywhere in the file is not enough. A setting listed only
-    // under the package that does NOT read it tells someone configuring
-    // the other Function App that they do not need it.
-    const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
-    const body = section(doc, /^#+\s.*environment variables/i);
-    expect(
-      body,
-      ".claude/CLAUDE.md has no Environment Variables section"
-    ).toBeTruthy();
-
-    // The block is grouped by `# packages/<name>` comment lines.
-    const declared = new Set<string>();
-    let current = "";
-    for (const line of (body as string).split("\n")) {
-      const header = line.match(/^#\s*packages\/(\S+)/);
-      if (header) {
-        current = header[1] ?? "";
-        continue;
-      }
-      const setting = line.match(/^([A-Z][A-Z0-9_]*)=/);
-      if (setting && current) {
-        declared.add(`${current}:${setting[1]}`);
-      }
-    }
-
-    const missing = discoverSettings()
-      .filter(({ package: pkg, name }) => !declared.has(`${pkg}:${name}`))
-      .map(({ package: pkg, name }) => `${name} under # packages/${pkg}`);
-
-    expect(
-      missing,
-      `.claude/CLAUDE.md does not document these settings against the package that reads them:\n  ${missing.join("\n  ")}`
-    ).toEqual([]);
-  });
-
-  it("documents every layer packages/bot/src actually has", () => {
-    // The api and extension packages each have a layer table; the bot's
-    // layers were introduced by this feature and are the deviation the
-    // issue asks be recorded, since design logs are immutable snapshots.
-    const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
-    const body = section(
-      doc,
-      /^#+\s+Layer Responsibilities \(within `packages\/bot\/src\/`\)/
-    );
-
-    expect(
-      body,
-      ".claude/CLAUDE.md has no layer table for packages/bot/src/, so the bot's layer conventions are recorded nowhere"
-    ).toBeTruthy();
-
-    // A layer is a directory with a barrel — the same definition the
-    // package's own import conventions use.
-    const layers = readdirSync(resolve(botRoot, "src"), {
-      withFileTypes: true,
-    })
-      .filter(
-        (entry) =>
-          entry.isDirectory() &&
-          entry.name !== "test" &&
-          existsSync(resolve(botRoot, "src", entry.name, "index.ts"))
-      )
-      .map((entry) => entry.name);
-
-    expect(layers.length).toBeGreaterThan(0);
-
-    const undocumented = layers.filter(
-      (layer) => !(body as string).includes(`${layer}/`)
-    );
-
-    expect(
-      undocumented,
-      `the packages/bot/src/ layer table does not describe: ${undocumented.join(", ")}`
-    ).toEqual([]);
-  });
-
-  it("no longer reports Teams Notifications as not started", () => {
-    // The build-status entry is the first thing read about where the
-    // project stands. A shipped feature still listed as not started is a
-    // claim the repo contradicts.
-    const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
-    const body = section(doc, /^#+\s+Feature 3\b/);
-
-    expect(
-      body,
-      ".claude/CLAUDE.md has no Feature 3 build-status entry"
-    ).toBeTruthy();
-
-    expect(
-      /^\s*- \[ \]/m.test(body as string),
-      "Feature 3 is still listed as an unchecked build-status item"
-    ).toBe(false);
-    expect(
-      /^\s*- \[x\]/m.test(body as string),
-      "Feature 3 has no completed build-status item"
-    ).toBe(true);
   });
 });
