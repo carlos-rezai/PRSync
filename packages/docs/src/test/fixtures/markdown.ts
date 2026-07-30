@@ -28,6 +28,7 @@
 // was not pointed at cannot trip it.
 
 import { posix } from "node:path";
+import { outsideFences } from "../../lib";
 import type { Repo } from "../../repo";
 
 /**
@@ -43,27 +44,6 @@ import type { Repo } from "../../repo";
  */
 export const SETTING_PATTERN =
   /\b(?:MICROSOFT_APP_[A-Z0-9_]+|AZURE_[A-Z0-9_]*CONNECTION_STRING|PRSYNC_[A-Z0-9_]+|VITE_[A-Z0-9_]+)\b/g;
-
-/**
- * Which of `lines` are outside a fenced code block, one flag per line. A
- * fence line itself counts as inside it: a fence is never content.
- *
- * Every reader below needs this, and for the same reason — a `#` inside a
- * fence is a shell comment, not a heading, and `docs/deployment.md`
- * carries exactly that shape.
- */
-function outsideFences(lines: readonly string[]): boolean[] {
-  const outside: boolean[] = [];
-  let fenced = false;
-
-  for (const line of lines) {
-    const isFence = /^\s*```/.test(line);
-    outside.push(!fenced && !isFence);
-    if (isFence) fenced = !fenced;
-  }
-
-  return outside;
-}
 
 /**
  * The body of a section, up to the next same-or-higher heading.
