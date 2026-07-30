@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { section } from "../lib";
 import { readDocument, repoAt } from "../repo";
 import { fakeRepo, nothingExists, recordingRepo } from "./fixtures/fakes";
 import {
   SETTING_PATTERN,
-  section,
   githubSlug,
   unresolvedLinks,
   unanimityAliases,
