@@ -116,6 +116,60 @@ describe("unreachable", () => {
     ).toEqual([]);
   });
 
+  it("reaches a document inside a linked directory", () => {
+    // A link to a directory is a real route: the forge renders it as a
+    // browsable index, so a reader who clicks `docs/PRDs` is looking at a
+    // list of every file in it. Requiring each by name would put thirteen
+    // bullets on the front door to say what one bullet already says.
+    const repo = fakeRepo({
+      "README.md": "- [PRDs and phased plans](docs/PRDs)",
+      "docs/PRDs": "",
+      "docs/PRDs/01-round-lifecycle.md": "# Round lifecycle",
+    });
+
+    expect(
+      unreachable({
+        from: "README.md",
+        documents: ["docs/PRDs/01-round-lifecycle.md"],
+        repo,
+      })
+    ).toEqual([]);
+  });
+
+  it("reaches a document nested below a linked directory", () => {
+    const repo = fakeRepo({
+      "README.md": "- [everything](docs)",
+      docs: "",
+      "docs/design-logs/04-user-docs.md": "# User docs",
+    });
+
+    expect(
+      unreachable({
+        from: "README.md",
+        documents: ["docs/design-logs/04-user-docs.md"],
+        repo,
+      })
+    ).toEqual([]);
+  });
+
+  it("does not count a sibling directory as linked", () => {
+    // The allowance is scoped to directories that were actually linked.
+    // Linking `docs/PRDs` says nothing about `docs/design-logs`.
+    const repo = fakeRepo({
+      "README.md": "- [PRDs](docs/PRDs)",
+      "docs/PRDs": "",
+      "docs/design-logs/01-round-lifecycle.md": "# Round lifecycle",
+    });
+
+    expect(
+      unreachable({
+        from: "README.md",
+        documents: ["docs/design-logs/01-round-lifecycle.md"],
+        repo,
+      })
+    ).toEqual(["docs/design-logs/01-round-lifecycle.md"]);
+  });
+
   it("counts the front door itself as reached", () => {
     expect(
       unreachable({

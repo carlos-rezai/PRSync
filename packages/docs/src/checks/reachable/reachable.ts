@@ -69,13 +69,38 @@ function linksFrom(document: string, repo: Repo): string[] {
 }
 
 /**
+ * Whether any directory containing `document` was linked.
+ *
+ * A link to a directory is a real route: the repository is read on a
+ * forge that renders a directory as a browsable index, so a reader who
+ * clicks `docs/PRDs` is looking at a list of every file in it. Requiring
+ * each of those files to be linked BY NAME from the README would put
+ * thirteen bullets on the front door to say what one already says.
+ *
+ * Pure path arithmetic rather than another read, which is why the `Repo`
+ * port still needs only `exists` and `read`.
+ */
+function underLinkedDirectory(document: string, seen: Set<string>): boolean {
+  let directory = posix.dirname(document);
+
+  while (directory !== "." && directory !== "/") {
+    if (seen.has(directory)) return true;
+    directory = posix.dirname(directory);
+  }
+
+  return false;
+}
+
+/**
  * Every document in `documents` that no chain of links from `from`
  * reaches.
  *
  * Reachability is TRANSITIVE, which is the whole point: the README is not
  * required to link everything itself, only to be the root of a tree that
  * covers everything. A document linked solely from the user guide is
- * reachable, because a reader routed to the user guide can get there.
+ * reachable, because a reader routed to the user guide can get there —
+ * and so is one inside a directory the README links, because a reader can
+ * browse it.
  */
 export function unreachable({ from, documents, repo }: ReachCheck): string[] {
   const seen = new Set<string>([from]);
@@ -94,5 +119,7 @@ export function unreachable({ from, documents, repo }: ReachCheck): string[] {
     }
   }
 
-  return documents.filter((document) => !seen.has(document));
+  return documents.filter(
+    (document) => !seen.has(document) && !underLinkedDirectory(document, seen)
+  );
 }
