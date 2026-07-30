@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readBotConfig } from "./BotHost";
+import { readBotConfig } from "./BotConfig";
 
 // `/api/messages` is anonymous-auth of necessity — Azure Bot Service
 // cannot present a Function key. What keeps it from being an open

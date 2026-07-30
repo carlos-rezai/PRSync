@@ -12,6 +12,7 @@ import {
 import type { HttpRequest, HttpResponseInit } from "@azure/functions";
 import type { CapturedIdentity } from "../../lib";
 import type { IdentityDirectory } from "../../services";
+import type { BotConfig } from "../BotConfig/BotConfig";
 
 // `teams/` is the exact analogue of the extension's `sdk/` layer: the one
 // place that imports the vendor SDK. Everything below it — the
@@ -19,10 +20,10 @@ import type { IdentityDirectory } from "../../services";
 // Framework in the test at all, and stays that way only as long as this
 // stays the sole importer.
 //
-// Three things live here: the bot's activity routing, the settings the
-// adapter authenticates with, and the adapter itself behind a
-// `MessagingEndpoint` narrow enough that the HTTP function knows nothing
-// about Bot Framework.
+// Two things live here: the bot's activity routing, and the adapter
+// itself behind a `MessagingEndpoint` narrow enough that the HTTP
+// function knows nothing about Bot Framework. The settings the adapter
+// authenticates with are its sibling `BotConfig`.
 
 /**
  * The reply to anything a teammate types. v1 cards are link-out only and
@@ -113,66 +114,6 @@ export function createTeamsBot(directory: IdentityDirectory): ActivityHandler {
   });
 
   return bot;
-}
-
-/**
- * The settings the adapter authenticates every inbound request with.
- * `/api/messages` is anonymous of necessity — Azure Bot Service cannot
- * present a Function key — so these four values ARE the authentication.
- */
-export interface BotConfig {
-  readonly appId: string;
-  readonly appPassword: string;
-  readonly tenantId: string;
-  readonly appType: "SingleTenant";
-}
-
-const SETTINGS = {
-  appId: "MICROSOFT_APP_ID",
-  appPassword: "MICROSOFT_APP_PASSWORD",
-  tenantId: "MICROSOFT_APP_TENANT_ID",
-  appType: "MICROSOFT_APP_TYPE",
-} as const;
-
-/**
- * Reads the bot's settings, refusing to start without them. A missing
- * password or a tenant that silently defaults does not fail loudly on
- * its own; it produces a bot that accepts tokens it should not, or
- * accepts none at all, and either way the only symptom is DMs that never
- * arrive.
- */
-export function readBotConfig(
-  env: Record<string, string | undefined>
-): BotConfig {
-  const required = (key: string): string => {
-    const value = env[key]?.trim() ?? "";
-    if (value === "") {
-      // Named, because the operator reading this line is looking at four
-      // near-identical settings in a configuration blade.
-      throw new Error(
-        `${key} is not set. The bot cannot authenticate without it.`
-      );
-    }
-    return value;
-  };
-
-  const appType = required(SETTINGS.appType);
-  if (appType !== "SingleTenant") {
-    // PRSync is sideloaded inside one org's tenant and will never be
-    // listed in the Teams Store. MultiTenant widens the token audience to
-    // every directory in the Bot Framework channel — a setting nobody
-    // would notice was wrong, because the bot keeps working.
-    throw new Error(
-      `${SETTINGS.appType} is "${appType}", but PRSync must be registered SingleTenant.`
-    );
-  }
-
-  return {
-    appId: required(SETTINGS.appId),
-    appPassword: required(SETTINGS.appPassword),
-    tenantId: required(SETTINGS.tenantId),
-    appType,
-  };
 }
 
 /**
