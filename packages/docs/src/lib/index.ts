@@ -8,4 +8,5 @@
 // never through this barrel, to avoid import cycles. See .claude/CLAUDE.md.
 
 export * from "./fences/fences";
+export * from "./githubSlug/githubSlug";
 export * from "./section/section";
