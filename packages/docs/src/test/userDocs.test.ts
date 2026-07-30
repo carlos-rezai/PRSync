@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { repoAt, type Repo } from "../repo";
 import {
   SETTING_PATTERN,
   readDoc,
@@ -9,8 +10,6 @@ import {
   unresolvedLinks,
   unanimityAliases,
   surfaceText,
-  repoAt,
-  type Repo,
   type Surface,
   type UnanimityHit,
   type UnresolvedLink,

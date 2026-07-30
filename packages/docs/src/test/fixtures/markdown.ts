@@ -27,9 +27,10 @@
 // raw text: reformatting a manifest cannot break it, and a sibling field it
 // was not pointed at cannot trip it.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { posix, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { posix } from "node:path";
 import { expect } from "vitest";
+import type { Repo } from "../../repo";
 
 /**
  * The shapes every PRSync deployment setting takes. Names are discovered
@@ -130,22 +131,6 @@ export function githubSlug(heading: string): string {
     .replace(/\s/g, "-");
 }
 
-/**
- * The filesystem the link resolver reads, keyed by repo-relative path.
- *
- * It is a port rather than `node:fs` because the two failures the
- * cross-reference assertion exists to catch — a link to a missing file and
- * an anchor matching no heading — are the two things the real repo, being
- * correct, cannot demonstrate. Same trick `QueueProducer` and
- * `TeamsSender` play on their vendor clients.
- */
-export interface Repo {
-  /** Whether anything at all — file or directory — is at `path`. */
-  exists(path: string): boolean;
-  /** The text at `path`; `""` where there is no text to read. */
-  read(path: string): string;
-}
-
 /** Why a link resolves to nothing. */
 export type UnresolvedReason = "no such file" | "no such heading";
 
@@ -168,23 +153,6 @@ export interface LinkCheck {
    */
   documents: readonly string[];
   repo: Repo;
-}
-
-/** A real repository rooted at `root`, for the assertion about this one. */
-export function repoAt(root: string): Repo {
-  const at = (path: string) => resolve(root, path);
-
-  return {
-    exists: (path) => existsSync(at(path)),
-    read: (path) => {
-      const full = at(path);
-      // A directory is a legitimate destination and has no text: existence
-      // is the whole question for an unanchored link.
-      return existsSync(full) && statSync(full).isFile()
-        ? readFileSync(full, "utf8")
-        : "";
-    },
-  };
 }
 
 /** `[text](destination)`, capturing the destination and dropping a title. */
