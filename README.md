@@ -138,7 +138,7 @@ Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
 | Monorepo scaffold                                         | ✅ Complete      |
 | 1. Round Lifecycle (data + API)                           | ✅ Complete      |
 | 2. Extension Panel                                        | ✅ Complete      |
-| 3. Teams Notifications (bot registration + static cards)  | ⬜ Not started   |
+| 3. Teams Notifications (bot registration + static cards)  | ✅ Complete      |
 | Round history view                                        | ⏸ Deferred       |
 | Reminder notifications                                    | ⏸ Deferred       |
 | Interactive Teams card actions ("mark done" from Teams)   | ⏸ Deferred to v2 |
