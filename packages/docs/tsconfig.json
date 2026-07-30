@@ -1,0 +1,8 @@
+{
+  // No `outDir` and no `rootDir`, unlike the other three packages: this
+  // workspace emits nothing. `typecheck` runs `tsc --noEmit` and that is
+  // the only compiler pass it ever gets, so there is no build/typecheck
+  // config split to keep in step either.
+  "extends": "../../tsconfig.base.json",
+  "include": ["src"]
+}

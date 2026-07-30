@@ -1,0 +1,16 @@
+{
+  "name": "@prsync/docs",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The workspace whose subject is PRSync's documentation - the markdown library the checks are built from, and the assertions about this repo's own documents. Ships nothing: no main, no build script, so no deploy target can include it.",
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -19,7 +19,9 @@ import { SETTING_PATTERN, readDoc, section } from "./fixtures/markdown";
 //      never learns about is a convention nobody can follow.
 //
 // Those are asserted by reading source and docs together, in the spirit of
-// this package's `packaging.test.ts` and `layerPolicy.test.ts`.
+// `packages/bot`'s `packaging.test.ts` and `layerPolicy.test.ts`, which is
+// where this file itself lived until the documentation got a workspace of
+// its own.
 //
 // The last two describes — Local development and Accepted costs — are
 // weaker by nature, and deliberately so. Prose quality is not mechanically
@@ -27,10 +29,13 @@ import { SETTING_PATTERN, readDoc, section } from "./fixtures/markdown";
 // explicit heading. They pass on a sentence that merely contains the word;
 // what they catch is the section going missing entirely.
 
-const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 
 const packagesDir = resolve(repoRoot, "packages");
+// The bot is read as EVIDENCE here rather than as this workspace's own
+// source, so it is named from the repo root like every other subject these
+// tests read. It was `../../` while this file lived inside that package.
+const botRoot = resolve(packagesDir, "bot");
 const deploymentDocPath = resolve(repoRoot, "docs/deployment.md");
 const claudeMdPath = resolve(repoRoot, ".claude/CLAUDE.md");
 
@@ -96,7 +101,7 @@ describe("deployment documentation", () => {
     // both sides are read: the doc must describe the endpoint that
     // actually ships, not the one it shipped as when the doc was written.
     const source = readFileSync(
-      resolve(packageRoot, "src/functions/teamsMessages/teamsMessages.ts"),
+      resolve(botRoot, "src/functions/teamsMessages/teamsMessages.ts"),
       "utf8"
     );
 
@@ -137,7 +142,7 @@ describe("deployment documentation", () => {
     // Sideloading is the install story, and the zip's name is its whole
     // contract — it is the file a teammate uploads to Teams.
     const pkg = JSON.parse(
-      readFileSync(resolve(packageRoot, "package.json"), "utf8")
+      readFileSync(resolve(botRoot, "package.json"), "utf8")
     ) as { scripts?: Record<string, string> };
 
     const artifact = pkg.scripts?.package?.match(/([\w.-]+\.zip)/)?.[1];
@@ -304,14 +309,14 @@ projectInstructions(".claude/CLAUDE.md", () => {
 
     // A layer is a directory with a barrel — the same definition the
     // package's own import conventions use.
-    const layers = readdirSync(resolve(packageRoot, "src"), {
+    const layers = readdirSync(resolve(botRoot, "src"), {
       withFileTypes: true,
     })
       .filter(
         (entry) =>
           entry.isDirectory() &&
           entry.name !== "test" &&
-          existsSync(resolve(packageRoot, "src", entry.name, "index.ts"))
+          existsSync(resolve(botRoot, "src", entry.name, "index.ts"))
       )
       .map((entry) => entry.name);
 
