@@ -1,0 +1,88 @@
+# The gate, run somewhere that is not the author's machine.
+#
+# Every check in this repo used to run only in `.husky/pre-commit`, against
+# the one working copy where the suite is most likely to be green for
+# reasons that do not generalise. That cost something twice: refactor 03
+# found three assertions about the gitignored `.claude/CLAUDE.md` that
+# PASSED here and FAILED on a fresh clone, and refactor 04 had to work the
+# same reasoning out again because there was still nothing that ran the
+# suite the way a clone would.
+#
+# `actions/checkout` IS that fresh clone. It is the first thing in the
+# project's history to exercise the gitignore-gated skips in the direction
+# a contributor hits them, and that is most of the value here.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded run tells nobody anything. Cancel it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: lint, typecheck, test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Pinned to the major the project is developed against, so a CI
+          # failure is never the runner's default Node drifting underneath.
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `packages/api`'s RoundRepository and `packages/bot`'s two repository
+      # suites are integration tests against real Table Storage — they
+      # connect to 127.0.0.1:10002 and fail without an emulator. Azurite is
+      # already a root devDependency, so this costs no new dependency and no
+      # service container, and it keeps CI's verdict equal to the pre-commit
+      # gate's rather than a weaker subset of it. Excluding them would leave
+      # the three suites running nowhere but the author's machine, which is
+      # the blind spot this workflow exists to close.
+      - name: Start Azurite
+        run: |
+          npx azurite --silent --location ./.azurite > azurite.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if (echo > /dev/tcp/127.0.0.1/10002) 2>/dev/null; then
+              echo "Azurite table endpoint is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Azurite did not open 127.0.0.1:10002 within 60s." >&2
+          cat azurite.log >&2
+          exit 1
+
+      # Deliberately WITHOUT `--if-present`, which is the one way these
+      # commands differ from the root scripts the pre-commit hook runs.
+      #
+      # `--if-present` makes a workspace that omits a script silently
+      # skipped by the gate rather than failing it — so the gate can quietly
+      # shrink to three workspaces, or to two, and report green throughout.
+      # Without the flag npm errors on the missing script, so dropping a
+      # gate fails the build. All four workspaces declare all three today;
+      # this is what keeps that true.
+      #
+      # The local hook keeps `--if-present` so day-to-day commits stay fast.
+      - name: Lint
+        run: npm run lint --workspaces
+
+      - name: Typecheck
+        run: npm run typecheck --workspaces
+
+      - name: Test
+        run: npm run test --workspaces
