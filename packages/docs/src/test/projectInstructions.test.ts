@@ -3,7 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { section } from "../lib";
 import { readDocument } from "../repo";
-import { at, repoRoot } from "./documents";
+import { at, repoRoot, README } from "./documents";
 import { discoverSettings } from "./settings";
 
 // The three assertions whose subject is `.claude/CLAUDE.md` — the project
@@ -61,6 +61,28 @@ function layeredPackages(): string[] {
     .map((entry) => entry.name)
     .filter((pkg) => layersOf(pkg).length > 0)
     .sort();
+}
+
+/**
+ * The README's build-status table, as feature number → the status text it
+ * carries.
+ *
+ * Only the numbered rows are read. Preliminary work and the deferred items
+ * are deliberately left out: neither has a `### Feature n` counterpart in
+ * the project instructions, so there is nothing for them to disagree with.
+ */
+function readmeFeatureStatus(): Map<number, string> {
+  const body = section(readDocument(at(README), README), /^#+\s+Build Status/);
+  const statuses = new Map<number, string>();
+
+  for (const line of (body ?? "").split("\n")) {
+    const row = line.match(/^\|\s*(\d+)\.\s*[^|]*\|\s*([^|]+?)\s*\|/);
+    if (row) {
+      statuses.set(Number(row[1]), row[2] ?? "");
+    }
+  }
+
+  return statuses;
 }
 
 const projectInstructions = existsSync(claudeMdPath) ? describe : describe.skip;
@@ -145,25 +167,53 @@ projectInstructions(".claude/CLAUDE.md", () => {
     ).toBeGreaterThan(1);
   });
 
-  it("no longer reports Teams Notifications as not started", () => {
-    // The build-status entry is the first thing read about where the
-    // project stands. A shipped feature still listed as not started is a
-    // claim the repo contradicts.
+  it("agrees with the README about which features are complete", () => {
+    // Generalised rather than re-pinned. This named Feature 3, so the one
+    // drift it could see was the one already fixed — while Feature 4 sat
+    // ✅ Complete in the README and `- [ ]` here, which is exactly the
+    // disagreement it existed to catch. Comparing the two lists means
+    // whichever feature ships next is guarded without editing this test.
+    //
+    // The build-status entry is the first thing anyone reads about where
+    // the project stands, and it is written twice. Two claims about the
+    // same feature that contradict each other means at least one is
+    // wrong, and a reader cannot tell which.
     const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
-    const body = section(doc, /^#+\s+Feature 3\b/);
+    const readme = readmeFeatureStatus();
 
     expect(
-      body,
-      ".claude/CLAUDE.md has no Feature 3 build-status entry"
-    ).toBeTruthy();
+      [...readme.keys()],
+      "README.md's Build Status table yielded no numbered feature, so nothing was compared"
+    ).not.toEqual([]);
+
+    const disagreements: string[] = [];
+
+    for (const [feature, status] of readme) {
+      const body = section(doc, new RegExp(`^#+\\s+Feature ${feature}\\b`));
+
+      expect(
+        body,
+        `.claude/CLAUDE.md has no Feature ${feature} build-status entry, but README.md lists it as "${status}"`
+      ).toBeTruthy();
+
+      // The README's vocabulary is "✅ Complete" against anything else;
+      // this file's is `- [x]` against `- [ ]`. Both reduce to the one
+      // question a reader is asking — is it done?
+      const readmeSaysComplete = /complete/i.test(status);
+      const instructionsSayComplete = /^\s*- \[x\]/m.test(body as string);
+
+      if (readmeSaysComplete !== instructionsSayComplete) {
+        disagreements.push(
+          `Feature ${feature}: README.md says "${status}", .claude/CLAUDE.md says ${
+            instructionsSayComplete ? "- [x]" : "- [ ]"
+          }`
+        );
+      }
+    }
 
     expect(
-      /^\s*- \[ \]/m.test(body as string),
-      "Feature 3 is still listed as an unchecked build-status item"
-    ).toBe(false);
-    expect(
-      /^\s*- \[x\]/m.test(body as string),
-      "Feature 3 has no completed build-status item"
-    ).toBe(true);
+      disagreements,
+      `the two build-status lists contradict each other:\n  ${disagreements.join("\n  ")}`
+    ).toEqual([]);
   });
 });
