@@ -48,10 +48,10 @@ Adding the app is the only thing that makes you **Reachable**, and it is
 what this whole guide depends on. Until you have done it PRSync cannot
 open a chat with you, so you are **Unreachable** and it has nowhere to
 send anything. Nothing warns you about this. You get no error, no banner
-and no failed-delivery notice; rounds
-open and close normally and you are simply never told. Nothing appears
-either way, so you cannot tell "I never added the app" apart from "no
-round has opened yet" — which is exactly why this step is first.
+and no failed-delivery notice; rounds open and close normally and you are
+simply never told. Nothing appears either way, so you cannot tell
+"I never added the app" apart from "no round has opened yet" — which is
+exactly why this step is first.
 
 To confirm it worked, send the PRSync chat any message at all. It replies
 starting with "PRSync is connected." That reply is the only confirmation
@@ -80,10 +80,10 @@ and where that file and this one disagree, that file is right.
 
 **Round** — one cycle of review on a pull request, opened by the author
 clicking "Ready for review" and ending either closed or **Cancelled**.
-_The consequence:_ a pull request has many **Round**s over
-its life, and PRSync talks about the current one, never about the pull
-request as a whole. Reviewing a pull request twice is two **Round**s, not
-one long one.
+_The consequence:_ a pull request has many **Round**s over its life, and
+PRSync talks about the current one, never about the pull request as a
+whole. Reviewing a pull request twice is two **Round**s, not one long
+one.
 
 **Done** — a per-person checkbox meaning "I have finished my pass on this
 **Round**". _The consequence:_ it is not Azure DevOps's own Approve vote.
@@ -270,11 +270,11 @@ of draft opens nothing.
 is taken at the moment of that click, so if you were added as a reviewer
 after the **Round** opened, you are not on it for this round and no
 message was sent to you. You will be on the next round's list if you are
-a reviewer when it opens. Two other
-ways to be absent from it: being a reviewer through a team or group
-rather than as yourself, and being the **Author**, who is never on their
-own round's list. The panel shows the snapshot, so you can check this
-yourself — if your name is not in the reviewer rows, that is your answer.
+a reviewer when it opens. Two other ways to be absent from it: being a
+reviewer through a team or group rather than as yourself, and being the
+**Author**, who is never on their own round's list. The panel shows the
+snapshot, so you can check this yourself — if your name is not in the
+reviewer rows, that is your answer.
 
 **4. Ask whoever set PRSync up.** The ladder ends here, and it ends here
 for a reason rather than because there is one more page to read. Every
