@@ -14,6 +14,22 @@ Marketplace listing and the Teams app description are short summaries of
 this page; where one of them says something this page does not, this page
 is the one to believe.
 
+Read it straight through the first time — it is short, and the first
+section is the one nobody can do for you. After that it is a lookup:
+
+- [Install PRSync](#install-prsync) — two steps, and why the first one
+  has to be yours
+- [Five words PRSync uses precisely](#five-words-prsync-uses-precisely) —
+  the terms that mean something narrower here than they usually do
+- [What you'll see](#what-youll-see) — the panel, by the role you hold
+  and whether a round is open
+- [What arrives in Teams](#what-arrives-in-teams) — the two messages, and
+  the fact that there is never a third
+- [I didn't get a message](#i-didnt-get-a-message) — four things to
+  check, in order
+- [Where the words come from](#where-the-words-come-from) — which
+  document wins when two of them disagree
+
 ## Install PRSync
 
 Two steps. The first is yours alone — nobody can do it on your behalf,
@@ -281,3 +297,18 @@ reviewing" — is not a softer way of saying the same thing; it describes a
 product that behaves differently from this one. If this guide and the
 terminology file ever disagree, the terminology file is right and this
 guide has a bug worth reporting.
+
+---
+
+## Where to go next
+
+- [`ubiquitous-language.md`](ubiquitous-language.md) — the full
+  definition of every word this guide bolded, and of the ones it never
+  needed. The section above says why it wins any disagreement with this
+  page.
+- [`setup-guide.md`](setup-guide.md) — the ordered path from an empty
+  Azure subscription to a working PRSync. You need it only if you are
+  also the **Operator**, which is who the fourth rung of "I didn't get a
+  message" sends you to.
+- [The README](../README.md) — what PRSync is and why it exists, if you
+  landed here before you saw it.
