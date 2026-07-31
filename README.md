@@ -89,7 +89,7 @@ The `.claude/` folder contains all skill definitions. The `docs/` folder contain
 | Teams                | Azure Bot resource (Bot Framework, free F0 tier) | Personal 1:1 DMs require a real bot with proactive messaging — a Teams incoming webhook can only post to a channel or pre-configured chat, never to an arbitrary individual user |
 | Teams (v1)           | Bot sends static, non-interactive Adaptive Cards | Link-out only — the bot exists in v1, but cards have no clickable actions yet                                                                                                    |
 | Teams (v2, deferred) | Interactive card actions                         | Clickable "mark done" directly from the card, round-tripping through the bot                                                                                                     |
-| Testing              | Vitest                                           | Consistent across both the extension and API packages                                                                                                                            |
+| Testing              | Vitest                                           | Consistent across all four workspaces — extension, API, bot, and the documentation checks                                                                                        |
 
 ---
 
@@ -164,7 +164,7 @@ Types: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`
 | 1. Round Lifecycle (data + API)                                  | ✅ Complete      |
 | 2. Extension Panel                                               | ✅ Complete      |
 | 3. Teams Notifications (bot registration + static cards)         | ✅ Complete      |
-| 4. Documentation / User Manual (user + setup guides, front door) | 🟡 In progress   |
+| 4. Documentation / User Manual (user + setup guides, front door) | ✅ Complete      |
 | Round history view                                               | ⏸ Deferred       |
 | Reminder notifications                                           | ⏸ Deferred       |
 | Interactive Teams card actions ("mark done" from Teams)          | ⏸ Deferred to v2 |
