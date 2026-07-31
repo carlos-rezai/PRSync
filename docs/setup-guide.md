@@ -34,6 +34,24 @@ There are two Function Apps and they are not interchangeable — the
 **bot** goes up at stage 3 and the **API** at stage 7. Where a stage says
 which, it means it.
 
+### The stages
+
+0. [Before you start](#stage-0--before-you-start)
+1. [Storage: three tables and one queue](#stage-1--storage-three-tables-and-one-queue)
+2. [Register the Azure Bot and its secret](#stage-2--register-the-azure-bot-and-its-secret)
+3. [Deploy the bot Function App](#stage-3--deploy-the-bot-function-app)
+4. [Messaging endpoint and the Teams channel](#stage-4--messaging-endpoint-and-the-teams-channel)
+5. [Allow custom app upload in the tenant](#stage-5--allow-custom-app-upload-in-the-tenant)
+6. [Package and sideload the Teams app, yourself first](#stage-6--package-and-sideload-the-teams-app-yourself-first)
+7. [Deploy the API Function App](#stage-7--deploy-the-api-function-app)
+8. [Allow the Azure DevOps origins in the API's CORS](#stage-8--allow-the-azure-devops-origins-in-the-apis-cors)
+9. [Build, package, publish and install the extension](#stage-9--build-package-publish-and-install-the-extension)
+10. [End to end on a real pull request](#stage-10--end-to-end-on-a-real-pull-request)
+11. [Roll out](#stage-11--roll-out)
+
+Then [where to go next](#where-to-go-next), which is mostly the two
+documents this one deliberately does not repeat.
+
 ---
 
 ## Stage 0 — Before you start
