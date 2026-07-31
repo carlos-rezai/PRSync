@@ -5,6 +5,65 @@ sessions. Newest entries at the top.
 
 ---
 
+## 2026-07-31 — The project instructions are versioned (issue #34)
+
+`.claude/CLAUDE.md` is now in the repository. `.gitignore` narrows from
+`.claude` to `.claude/*` with a `!.claude/CLAUDE.md` negation, so
+`skills/`, `hooks/` and `settings.json` stay local and only the project
+instructions are versioned. This supersedes the "still outstanding" line
+in the entry below, written the same morning.
+
+**Five recurrences, and the fifth is the one that had new information.**
+Refactor plans 01, 02, 03 and 04 each applied an edit to this file —
+layer conventions, the `hooks/` deviation, the `teams/` table, the
+`packages/docs` table, Feature 4's build status — and each time it was
+effective immediately for every future session and invisible to anyone
+who cloned. Each time it was left as the author's call, and each time
+the next refactor rediscovered it. What changed is that CI landed two
+commits earlier: `actions/checkout` is a fresh clone with no
+`.claude/CLAUDE.md`, so the three assertions in
+`packages/docs/src/test/projectInstructions.test.ts` skipped on **every
+CI run**, and the only machine they executed on was the author's. The
+skip had been incidental. CI made it permanent, which is what turned a
+documented cost into a decision.
+
+**It also unpicks the cross-boundary check filed in the issue.** The
+build-status assertion compares `README.md` against this file. One was
+versioned and the other was not, so the two had to move together while a
+commit could only ever contain one of them — a genuinely awkward shape
+that existed because of the ignore rule rather than in spite of it. Both
+are versioned now and land in the same commit.
+
+**The skip gate is removed rather than updated.** `existsSync(path) ?
+describe : describe.skip` had a careful rationale — a clone was never
+given the file to drift from, so there was nothing there to assert
+against — and the premise is gone. Leaving a gate would mean a working
+copy that deletes the file silently skips three real checks, which is
+the exact failure this decision removed. `readDocument` already fails
+under a document's own name, so the absent case now reports
+`.claude/CLAUDE.md is missing` three times. Verified in both directions
+rather than assumed: with the file moved aside the suite reports **3
+failed** rather than 3 skipped, then restored from a snapshot and
+confirmed byte-identical by checksum and by an empty diff against `HEAD`.
+
+**`.claude/*` rather than `.claude`, and the reason is not cosmetic.**
+Git does not descend into an ignored _directory_, so a negation for a
+file inside one never matches — `.claude` plus `!.claude/CLAUDE.md`
+silently keeps ignoring it. The `/*` form is what makes the negation
+reachable, and it is the same shape, for the same reason, as the
+`.vscode/*` + `!.vscode/extensions.json` pair already three rules above
+it.
+
+**The trade that was accepted.** Every future edit to the project
+instructions now appears in diffs and is pushed to GitHub — the file's
+ongoing history is public, not just its current contents. That is the
+cost of the conventions being reviewable and of a clone getting the same
+context, and it was taken deliberately.
+
+**Still outstanding:** the API's four-handler duplication, outstanding
+since plan 02, which belongs to `round-lifecycle` and still wants an
+issue.
+
 ## 2026-07-31 — CI, at last (issue #33)
 
 A GitHub Actions workflow in `.github/workflows/ci.yml`, on push to
