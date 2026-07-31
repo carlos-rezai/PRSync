@@ -5,6 +5,116 @@ sessions. Newest entries at the top.
 
 ---
 
+## 2026-07-31 — User docs built and refactored (issues #26–#32, Feature 4)
+
+Feature 4 shipped `docs/user-guide.md` and `docs/setup-guide.md`, gave
+the README a front door that routes three readers, and put the whole set
+under mechanical checks. Then
+`docs/refactor-plans/04-user-docs-refactor.md` moved both halves to where
+they belonged. No product code changed at any point: nothing under
+`packages/*/src` outside `src/test/`, no card, no contract, no setting,
+no behaviour. Final counts — docs **101 across 20**, bot **113 across
+21** (down from 153/23), api 180, extension 191, green under `lint`,
+`typecheck` and `test` after every commit.
+
+**The documentation tests were living inside the Teams bot.**
+`packages/bot/src/test/userDocs.test.ts` asserted against `README.md`,
+both guides, the ubiquitous language and the extension's Marketplace
+manifest. Exactly one of the files it read was in the package that owned
+it, and that one was a manifest rather than source — so renaming a
+heading in the **extension's** listing turned the **bot's** suite red.
+They were put there because `deploymentDocs.test.ts` was already there
+when Feature 4 needed a sibling. Build order, fossilised into structure,
+for the **third** time: `App.test.tsx` (issue #14), `BotHost` (issue
+#25), now this. All three had the same tell — a name or a location
+describing _when_ something was written rather than _what it is about_ —
+and in all three the tests had already split before the source did.
+
+**A fourth workspace was cheaper than it looked.** `packages/docs` is
+private, has no `main` and no `build` script, so
+`npm run build --workspaces --if-present` skips it and no deploy target
+can include it. `packages/*` already globbed it and `.husky/pre-commit`
+already fanned out with `--workspaces --if-present`, so the gate picked
+it up with no edit to any root script or hook. The move itself was
+close to free because `packages/docs/src/test/` sits at the same depth as
+`packages/bot/src/test/` — the four-level `repoRoot` and every
+repo-relative constant in both files survived untouched. That depth
+coincidence is why the riskiest-looking commit in the plan changed the
+least, and why the move happened _before_ the decomposition rather than
+after.
+
+**The markdown fixture had become a library and nobody moved it.** 465
+lines in `src/test/fixtures/` holding four engines — a fenced-block
+walker, a section reader, a GitHub slug implementation with three
+non-obvious rules, and a link resolver with its own `Repo` port — and
+carrying the longest doc comments in the package. The proof was in its
+consumer: of `userDocs.test.ts`'s 1,042 lines, roughly 500 were unit
+tests **of the fixture**, driven against hand-built fakes with no
+involvement of this repo's documents at all. It is now three layers of
+real modules, and the functions that never made it out of the spec file
+— `boldedTerms`, `withoutLinks`, `stageNumbers`, `settingTokens`, plus
+`outsideFences` and `section`, which were inside the fixture and _also_
+untested directly — have tests of their own for the first time.
+
+**`readDoc` called `expect` from `vitest`, which is why it had to be a
+fixture.** A fixture may import vitest; a module in `src/` may not. It
+became `readDocument` and throws a labelled error instead, with the same
+message, so the reader sees the same thing and nothing in
+`packages/docs/src/` outside a co-located test imports vitest.
+
+**`readSourceFiles` is duplicated, deliberately.** `layerPolicy.test.ts`
+still needs a walker over the bot's own source and the moved deployment
+test needs one too. Sharing means a workspace-to-workspace dependency,
+which this repo has declined twice before — for `NotificationMessage`
+and for `statusCodeOf`, both on the Feature 3 design log's reasoning.
+Two copies of a 25-line walk, each beside its consumer and each with its
+own test, and this one is test-only so it cannot reach a deploy at all.
+Recorded in `docs/deployment.md`'s accepted costs so it reads as a
+decision rather than an oversight.
+
+**Two drift checks were generalised rather than re-pinned, and one of
+them immediately found something.** The layer-table check read
+`packages/bot` by name, so a fourth workspace's layers were guarded by
+nobody — and `packages/docs` promptly became that workspace. The
+build-status check named Feature 3, so the only drift it could see was
+the one already fixed, while Feature 4 sat ✅ Complete in the README and
+`- [ ]` in the project instructions. Pinning a drift check to the
+instance that motivated it guarantees it catches that instance and
+nothing else.
+
+**Nothing had ever checked that a document is _reachable_.** The link
+resolver proves every link that exists points somewhere real; it says
+nothing about a document nobody links to. `checks/reachable/` follows
+relative links from `README.md` transitively and reports every
+`docs/**/*.md` no path arrives at. It is also the first check nobody
+would have written while the only home for it was inside the Teams bot's
+test directory — which is the second thing the workspace bought.
+
+**The cross-reference check had only ever read three of the five
+documents.** `docs/deployment.md` gained back-links in issue #30 and
+`docs/ubiquitous-language.md` links out too; neither had ever had a link
+of its own resolved. Both are now read as sources rather than merely as
+targets.
+
+**The gitignore trap recurred for the fifth time** (plans 01, 02, 03,
+and twice in this one — the `packages/docs` layer table, and Feature 4's
+`- [x]`). Both were applied on disk and are unversioned. The second is
+now interesting rather than merely annoying: the build-status check
+compares a versioned file against an unversioned one, so the two have to
+move together in a commit that can only contain one of them. Filed as
+its own issue rather than decided here, along with CI — outstanding
+since refactor 03, and the thing that would have caught the trap in the
+first place.
+
+**Left undone on purpose.** Screenshots, ruled out in the design log and
+still ruled out. In-panel help, still product code. Surfacing
+**Unreachable** in the panel — the user guide's ladder still ends
+honestly at the **Operator**, and changing that needs an API read path
+and panel state, neither of which is modelled. A published Marketplace
+listing page and real `privacyUrl` / `termsOfUseUrl` pages. And still
+outstanding from plan 02: the API's four-handler duplication, which
+belongs to `round-lifecycle` and wants its own issue.
+
 ## 2026-07-30 — Teams-notifications refactor (issue #25)
 
 Executed the 17-commit plan in
