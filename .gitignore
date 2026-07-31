@@ -37,6 +37,15 @@ Thumbs.db
 *.log
 npm-debug.log*
 
-# Claude Code local overrides (never committed)
-.claude
+# Claude Code local overrides (never committed) — EXCEPT the project
+# instructions, which are versioned. They are the only record of several
+# of this repo's conventions, because design logs are immutable snapshots
+# and deviations from them are written down there instead; and
+# packages/docs asserts against them. See issue #34.
+#
+# `.claude/*` rather than `.claude`: git does not descend into an ignored
+# directory, so a negation inside one never matches. Same shape as the
+# .vscode rule above, for the same reason.
+.claude/*
+!.claude/CLAUDE.md
 .claude.local.md
