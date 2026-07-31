@@ -8,23 +8,29 @@ import { discoverSettings } from "./settings";
 
 // The three assertions whose subject is `.claude/CLAUDE.md` — the project
 // instructions — rather than a document a user reads. They are a file of
-// their own because the reason they behave unlike every other spec here
-// is easier to find when it is the whole file's subject.
+// their own because their subject is unlike every other document this
+// workspace reads: it is not user-facing, so it is in none of the
+// registries in `documents.ts`, and it is the only record of several of
+// this repo's layer conventions, since design logs are immutable
+// snapshots and deviations from them are written down there instead.
 //
-// THE SKIP RATIONALE. `.claude/CLAUDE.md` is a deliberate local override
-// and is gitignored, so a fresh clone does not have it. These tests guard
-// the AUTHOR's working copy against drift between the project
-// instructions and the source — a real check, and the only place several
-// of this repo's layer conventions are recorded, since design logs are
-// immutable snapshots.
+// THESE USED TO SKIP, and the rationale for it is worth keeping because
+// the shape recurred five times. The file was gitignored, so a fresh
+// clone did not have it and there was nothing there to drift from;
+// failing would have meant a clone could not get the suite green, and
+// making them pass everywhere meant versioning an ignored file, which was
+// the author's call and not a test's.
 //
-// They are SKIPPED rather than failed when the file is absent. Failing
-// would mean a clone cannot get the suite green; deleting them gives up
-// the check; making them pass everywhere means force-adding a gitignored
-// file, which is the author's call and not a test's. A clone was never
-// given the file to drift from, so there is nothing there to assert
-// against. In every working copy that HAS it, these run and still fail on
-// real drift.
+// Issue #33 turned that cost from incidental into permanent: CI checks
+// out a fresh clone, so these three ran nowhere but one machine. Issue
+// #34 settled it — `.gitignore` now narrows to `.claude/*` with a
+// `!.claude/CLAUDE.md` negation, the file is versioned, and these run
+// everywhere.
+//
+// So there is deliberately NO `existsSync` gate left. Re-adding one would
+// mean a working copy that deletes the file silently skips three real
+// checks, which is the exact failure the decision removed.
+// `readDocument` fails under the file's own name instead.
 
 const packagesDir = resolve(repoRoot, "packages");
 const claudeMdPath = at(".claude/CLAUDE.md");
@@ -85,9 +91,7 @@ function readmeFeatureStatus(): Map<number, string> {
   return statuses;
 }
 
-const projectInstructions = existsSync(claudeMdPath) ? describe : describe.skip;
-
-projectInstructions(".claude/CLAUDE.md", () => {
+describe(".claude/CLAUDE.md", () => {
   it("documents each setting under the package that reads it", () => {
     // Presence anywhere in the file is not enough. A setting listed only
     // under the package that does NOT read it tells someone configuring

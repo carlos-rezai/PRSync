@@ -8,9 +8,15 @@
 # same reasoning out again because there was still nothing that ran the
 # suite the way a clone would.
 #
-# `actions/checkout` IS that fresh clone. It is the first thing in the
-# project's history to exercise the gitignore-gated skips in the direction
-# a contributor hits them, and that is most of the value here.
+# `actions/checkout` IS that fresh clone, and it settled that particular
+# case immediately: running here made the three gitignore-gated skips
+# permanent rather than incidental, which is what finally decided issue
+# #34 in favour of versioning `.claude/CLAUDE.md`. Those three now run
+# everywhere and the gate is gone.
+#
+# The general value outlasts that one fix. A clone is the only place a
+# missing file, an unversioned path or a machine-local assumption can
+# show itself, and this is the one thing in the project that looks.
 
 name: CI
 
