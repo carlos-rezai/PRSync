@@ -3,6 +3,15 @@
 Single source of truth for domain terminology. Read before naming
 anything. Update after every grill-me session.
 
+Written for whoever is about to name something — a variable, a panel
+string, a sentence in a guide — and read by lookup rather than straight
+through. It is not where a teammate starts:
+[`user-guide.md`](user-guide.md) glosses the five words they actually
+need in plain language and sends them here for the rest, and where that
+gloss and this file disagree, this file is right. The "Aliases to avoid"
+column is the load-bearing one — every entry in it names a friendlier
+phrasing that describes a product PRSync is not.
+
 Restructured 2026-07-24 during the round-lifecycle grill-me
 ([`01-round-lifecycle.md`](design-logs/01-round-lifecycle.md)), which
 also replaced the unanimity close rule with a **quorum** and added the
