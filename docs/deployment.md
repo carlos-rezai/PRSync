@@ -17,6 +17,32 @@ eleven stages link back to the sections here for every value and every
 failure. If you are standing PRSync up for the first time, start there
 and let it send you back.
 
+### What's in here
+
+The five prerequisites, each of which fails _silently_ from the panel's
+point of view when it is skipped:
+
+- [Function App CORS must allow the ADO org origin](#prerequisite-function-app-cors-must-allow-the-ado-org-origin)
+- [The tables and the queue must already exist](#prerequisite-the-tables-and-the-queue-must-already-exist)
+- [API configuration](#prerequisite-api-configuration)
+- [Panel configuration](#prerequisite-panel-configuration)
+- [Bot configuration](#prerequisite-bot-configuration)
+
+Getting each of the three deployables up:
+
+- [Registering the Azure Bot resource](#registering-the-azure-bot-resource)
+- [Deploying the API](#deploying-the-api)
+- [Deploying the bot](#deploying-the-bot)
+- [Packaging and sideloading the Teams app](#packaging-and-sideloading-the-teams-app)
+- [Packaging and publishing the extension](#packaging-and-publishing-the-extension)
+
+Rationale, checks and the trades taken knowingly:
+
+- [Why `/api/messages` is anonymous, and why that is not an open endpoint](#why-apimessages-is-anonymous-and-why-that-is-not-an-open-endpoint)
+- [Local development](#local-development)
+- [Verifying a deploy](#verifying-a-deploy)
+- [Accepted costs](#accepted-costs)
+
 ---
 
 ## Prerequisite: Function App CORS must allow the ADO org origin
