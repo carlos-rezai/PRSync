@@ -5,6 +5,72 @@ sessions. Newest entries at the top.
 
 ---
 
+## 2026-07-31 — CI, at last (issue #33)
+
+A GitHub Actions workflow in `.github/workflows/ci.yml`, on push to
+`main` and on every pull request: `npm ci`, then `lint`, `typecheck` and
+`test` across all four workspaces. Outstanding since refactor 03 and
+named in three consecutive refactor plans before it got an issue.
+
+**The point is not the commands, it is where they run.** Every gate in
+this repo ran only in `.husky/pre-commit`, on the author's machine,
+against the one working copy where the suite is most likely to be green
+for reasons that do not generalise. That cost something twice: refactor
+03 found three assertions about the gitignored `.claude/CLAUDE.md` that
+passed here and **failed** on a fresh clone, armed for weeks because
+nobody had ever run the suite anywhere else; refactor 04 then added a
+build-status check gated behind the same skip and had to work the whole
+argument out again from scratch. `actions/checkout` **is** that fresh
+clone, so those gitignore-gated skips are now exercised on every push in
+the direction a contributor actually hits them. That is most of the
+value here.
+
+**`--if-present` was hiding a real hole, and it is worth being precise
+about which one.** The root scripts fan out with
+`--workspaces --if-present`, which means a workspace that omits `lint`,
+`typecheck` or `test` is silently **skipped by the gate rather than
+failing it** — so the gate can quietly shrink from four workspaces to
+three, or to two, and report green the whole way down. CI therefore runs
+`npm run lint --workspaces` with **no** `--if-present`, which is the one
+way its commands differ from the hook's. Verified both directions rather
+than assumed, by deleting `lint` from `packages/docs/package.json`: the
+`--if-present` form exits **0**, the CI form exits **1**. All four
+workspaces declare all three scripts today — nothing needed fixing — so
+this is the thing that keeps that true rather than a repair. The hook
+keeps `--if-present`, because a fast local commit is worth more than a
+second copy of a check CI now owns.
+
+**Azurite runs in CI rather than the emulator suites being excluded.**
+`packages/api`'s `RoundRepository` and `packages/bot`'s two repository
+suites are integration tests against real Table Storage on
+`127.0.0.1:10002`. The alternative was an env guard skipping them, which
+would have left three suites running nowhere but the author's machine —
+the exact blind spot this workflow exists to close, reintroduced by the
+workflow closing it. It cost a backgrounded `npx azurite` and a
+wait-for-port loop, because Azurite was already a root devDependency: no
+new dependency, no service container. A suite that is always red is a
+suite nobody reads, and a suite that never runs is worse.
+
+**What it deliberately does not do.** No `build` step — `packages/docs`
+has no `build` script by design, so a fan-out without `--if-present`
+could not include one without special-casing the workspace whose whole
+point is that it ships nothing. No OS matrix: `ubuntu-latest` only, even
+though development happens on Windows and `readSourceFiles` has a
+forward-slashed-paths test that cares. Node is pinned to the major the
+project is developed against, so a failure is never the runner's default
+Node drifting underneath.
+
+**The one cost worth knowing before wondering where the minute went.**
+`npm ci` triggers `azure-functions-core-tools`' postinstall, which pulls
+a ~150MB binary on every run and is not covered by the npm cache.
+`--ignore-scripts` would skip it and also skip esbuild's platform
+binary, which vitest needs, so it stays.
+
+**Still outstanding:** whether `.claude/CLAUDE.md` should be force-added,
+which has now recurred five times and has its own issue; and the API's
+four-handler duplication, outstanding since plan 02, which belongs to
+`round-lifecycle` and still wants one.
+
 ## 2026-07-31 — User docs built and refactored (issues #26–#32, Feature 4)
 
 Feature 4 shipped `docs/user-guide.md` and `docs/setup-guide.md`, gave
