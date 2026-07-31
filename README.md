@@ -18,7 +18,7 @@ This project has two purposes:
 
 ## Documentation
 
-Three readers, one document each:
+Five documents. Three of them are a starting point — pick the one that matches why you are here:
 
 | If you are…                                                   | Start here                                   | Which owns                                                                     |
 | ------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -34,6 +34,8 @@ Two references sit behind those guides, read by lookup rather than straight thro
 
 - [`docs/deployment.md`](docs/deployment.md) — every setting value, the reasoning behind it, and what each failure looks like. The setup guide links here for both and repeats neither.
 - [`docs/ubiquitous-language.md`](docs/ubiquitous-language.md) — the single source of truth for PRSync's terminology. The user guide glosses five of these words; this file defines all of them.
+
+Whichever you open, its first screen tells you which kind it is: the two guides and the deployment reference each begin with a contents list, and the two guides end by pointing at wherever you go next.
 
 ### The paper trail
 
@@ -100,7 +102,8 @@ PRSync/
 ├── packages/
 │   ├── extension/        # ADO extension — packaged as a .vsix
 │   ├── api/               # Azure Functions
-│   └── bot/                # Teams Bot Framework bot — static cards in v1, interactive actions deferred to v2
+│   ├── bot/                # Teams Bot Framework bot — static cards in v1, interactive actions deferred to v2
+│   └── docs/                # the checks over the documentation — ships nothing, has no build
 └── docs/
     ├── design-logs/       # Immutable feature design snapshots
     ├── PRDs/               # Product requirements and implementation plans
@@ -128,7 +131,7 @@ npm install
 npm test
 ```
 
-`npm install` covers all three packages via npm workspaces, and `npm test` runs every suite. Exercising the API, the panel and the bot on your own machine additionally needs a storage emulator and a public tunnel — both are in [Local development](docs/deployment.md#local-development).
+`npm install` covers all four workspaces via npm workspaces, and `npm test` runs every suite — including [`packages/docs`](packages/docs), whose subject is the documentation in this repo rather than any shipped code. Exercising the API, the panel and the bot on your own machine additionally needs a storage emulator and a public tunnel — both are in [Local development](docs/deployment.md#local-development).
 
 ### Commit message convention
 
