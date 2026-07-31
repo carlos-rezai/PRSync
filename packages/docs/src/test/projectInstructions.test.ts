@@ -27,8 +27,41 @@ import { discoverSettings } from "./settings";
 // real drift.
 
 const packagesDir = resolve(repoRoot, "packages");
-const botRoot = resolve(packagesDir, "bot");
 const claudeMdPath = at(".claude/CLAUDE.md");
+
+/**
+ * A package's layers: every directory under its `src/` that has a barrel,
+ * `test/` excepted.
+ *
+ * A barrel is the same definition every package's own import conventions
+ * use — a layer is a thing with a public API — so this cannot drift from
+ * what the rule means.
+ */
+function layersOf(pkg: string): string[] {
+  const src = resolve(packagesDir, pkg, "src");
+
+  return readdirSync(src, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        entry.name !== "test" &&
+        existsSync(resolve(src, entry.name, "index.ts"))
+    )
+    .map((entry) => entry.name);
+}
+
+/** Every workspace that has layers at all, discovered rather than listed. */
+function layeredPackages(): string[] {
+  return readdirSync(packagesDir, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isDirectory() &&
+        existsSync(resolve(packagesDir, entry.name, "src"))
+    )
+    .map((entry) => entry.name)
+    .filter((pkg) => layersOf(pkg).length > 0)
+    .sort();
+}
 
 const projectInstructions = existsSync(claudeMdPath) ? describe : describe.skip;
 
@@ -69,44 +102,47 @@ projectInstructions(".claude/CLAUDE.md", () => {
     ).toEqual([]);
   });
 
-  it("documents every layer packages/bot/src actually has", () => {
-    // The api and extension packages each have a layer table; the bot's
-    // layers were introduced by this feature and are the deviation the
-    // issue asks be recorded, since design logs are immutable snapshots.
+  it("documents every layer every workspace actually has", () => {
+    // Generalised rather than re-pinned. This read `packages/bot` by name,
+    // which meant a fourth workspace's layers were guarded by nobody —
+    // and `packages/docs` promptly became that workspace. Any package
+    // that grows a layer is now covered by the rule that already covered
+    // the other three.
     const doc = readDocument(claudeMdPath, ".claude/CLAUDE.md");
-    const body = section(
-      doc,
-      /^#+\s+Layer Responsibilities \(within `packages\/bot\/src\/`\)/
-    );
 
+    let checked = 0;
+
+    for (const pkg of layeredPackages()) {
+      const body = section(
+        doc,
+        new RegExp(
+          `^#+\\s+Layer Responsibilities \\(within \`packages/${pkg}/src/\`\\)`
+        )
+      );
+
+      expect(
+        body,
+        `.claude/CLAUDE.md has no layer table for packages/${pkg}/src/, so that package's layer conventions are recorded nowhere`
+      ).toBeTruthy();
+
+      const undocumented = layersOf(pkg).filter(
+        (layer) => !(body as string).includes(`${layer}/`)
+      );
+
+      expect(
+        undocumented,
+        `the packages/${pkg}/src/ layer table does not describe: ${undocumented.join(", ")}`
+      ).toEqual([]);
+
+      checked += 1;
+    }
+
+    // A floor: a discovery bug that found no layered package would make
+    // every assertion above vacuous by never running one.
     expect(
-      body,
-      ".claude/CLAUDE.md has no layer table for packages/bot/src/, so the bot's layer conventions are recorded nowhere"
-    ).toBeTruthy();
-
-    // A layer is a directory with a barrel — the same definition the
-    // package's own import conventions use.
-    const layers = readdirSync(resolve(botRoot, "src"), {
-      withFileTypes: true,
-    })
-      .filter(
-        (entry) =>
-          entry.isDirectory() &&
-          entry.name !== "test" &&
-          existsSync(resolve(botRoot, "src", entry.name, "index.ts"))
-      )
-      .map((entry) => entry.name);
-
-    expect(layers.length).toBeGreaterThan(0);
-
-    const undocumented = layers.filter(
-      (layer) => !(body as string).includes(`${layer}/`)
-    );
-
-    expect(
-      undocumented,
-      `the packages/bot/src/ layer table does not describe: ${undocumented.join(", ")}`
-    ).toEqual([]);
+      checked,
+      "found no layered package, so the layer tables were never read"
+    ).toBeGreaterThan(1);
   });
 
   it("no longer reports Teams Notifications as not started", () => {
